@@ -57,9 +57,23 @@ struct Lexer {
     int line;
 };
 
+
 void Token_init(struct Lexer *lexer, const char *source);
 
-struct Token next_token(struct Lexer *lexer);
+void advance(struct Lexer *lexer);
+
+char peek(const struct Lexer *lexer);
+
+void skip_whitespace(struct Lexer *lexer);
+
+struct Token Read_Number(struct Lexer *lexer);
+
+struct Token Read_Keywords(struct Lexer *lexer);
+
+struct Token make_token(const int type, char *lexeme, const int line);
+
+struct Token lexer_next(struct Lexer *lexer);
+
 
 
 

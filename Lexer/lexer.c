@@ -8,19 +8,21 @@
 void Token_init(struct Lexer *lexer, const char *source) {
     lexer->source = source;
     lexer->position = 0;
+    lexer->line = 1;
     lexer->current_char = source[0];
 }
 
 void advance(struct Lexer *lexer) {
+    if (lexer->current_char == '\n') {
+        lexer->line++;
+    }
     lexer->position++;
     lexer->current_char = lexer->source[lexer->position];
+
 }
 
 void skip_whitespace(struct Lexer *lexer) {
     while (isspace(lexer->current_char)) {
-        if (lexer->current_char == '\n') {
-            lexer->line++;
-        }
         advance(lexer);
     }
 }
@@ -103,6 +105,37 @@ struct Token lexer_next(struct Lexer *lexer) {
     char c = lexer->current_char;
 
 
+    switch (c) {
+        case '=':
+            if (peek(lexer) == ':') {
+                advance(lexer);
+                advance(lexer);
 
+                return make_token(TOKEN_ASSIGN, NULL, lexer->line);
+            }
+            advance(lexer);
+            return make_token(TOKEN_ERROR, NULL, lexer->line);
+        case '-':
+            if (peek(lexer) == '>') {
+                advance(lexer);
+                advance(lexer);
+                return make_token(TOKEN_ARROW, NULL, lexer->line);
+            }
+            advance(lexer);
+            return make_token(TOKEN_MINUS, NULL, lexer->line);
+        case ';':
+            advance(lexer);
+            return make_token(TOKEN_SEMICOLON, NULL, lexer->line);
 
+        default:
+            if (isalpha(c) || c == '_') {
+                return Read_Keywords(lexer);
+            }
+            if (isdigit(c)) {
+                return Read_Number(lexer);
+            }
+            advance(lexer);
+            return make_token(TOKEN_ERROR, "Error: Unknow Char", lexer->line);
+    }
+    return make_token(TOKEN_ERROR, "Error: Unreachable code", lexer->line);
 }
