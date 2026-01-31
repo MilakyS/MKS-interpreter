@@ -29,6 +29,7 @@ enum TokenType {
     TOKEN_COLON,
     TOKEN_SEMICOLON,
     TOKEN_COMMA,
+    TOKEN_INCREMENT,
 
 
     // Keywords
