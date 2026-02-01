@@ -39,18 +39,18 @@ typedef struct ASTNode{
         }Assign;
         struct {
             struct ASTNode *target;
-            struct ASTNode *value;
+            char* field;
         }Arrow;
     }data;
 }ASTNode;
 
 ASTNode* create_ast_binop(ASTNode *left, ASTNode *right, int op, int line);
 ASTNode* create_ast_num(int val, int line);
-ASTNode* create_ast_ident(char* name, int line);
-ASTNode* create_ast_var_decl(ASTNode *value, int line, char* name);
+ASTNode* create_ast_ident(const char* name, int line);
+ASTNode* create_ast_var_decl(ASTNode *value, int line, const char* name);
 ASTNode* create_ast_writeln(ASTNode *expression, int line);
-ASTNode* create_ast_arrow(ASTNode *target, ASTNode *value, int line);
-ASTNode* create_ast_assign(ASTNode *value, char *name, int line);
+ASTNode* create_ast_arrow(ASTNode *target, const char* value, int line);
+ASTNode* create_ast_assign(ASTNode *value, const char *name, int line);
 
 void delete_ast_node(ASTNode *node);
 

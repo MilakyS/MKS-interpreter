@@ -65,8 +65,6 @@ void advance(struct Lexer *lexer);
 
 char peek(const struct Lexer *lexer);
 
-void skip_whitespace(struct Lexer *lexer);
-
 struct Token Read_Number(struct Lexer *lexer);
 
 struct Token Read_Keywords(struct Lexer *lexer);

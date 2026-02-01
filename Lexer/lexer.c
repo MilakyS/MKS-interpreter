@@ -17,10 +17,9 @@ void advance(struct Lexer *lexer) {
     }
     lexer->position++;
     lexer->current_char = lexer->source[lexer->position];
-
 }
 
-void skip_whitespace(struct Lexer *lexer) {
+static void skip_whitespace(struct Lexer *lexer) {
     while (lexer->current_char != '\0') {
         if (isspace(lexer->current_char)) {
             advance(lexer);
@@ -36,7 +35,6 @@ void skip_whitespace(struct Lexer *lexer) {
             break;
         }
     }
-
 }
 
 struct Token Read_Number(struct Lexer *lexer) {
@@ -50,7 +48,6 @@ struct Token Read_Number(struct Lexer *lexer) {
     token.int_value = value;
     token.line = lexer->line;
     token.lexeme = nullptr;
-
 
     return token;
 }
@@ -67,14 +64,13 @@ struct Token Read_Keywords(struct Lexer *lexer) {
     while (isalpha(lexer->current_char) || lexer->current_char == '_') {
         advance(lexer);
     }
-    const size_t size = lexer->position - start_pos;
 
+    const size_t size = lexer->position - start_pos;
     char *lexeme = malloc(size+1);
 
     memcpy(lexeme, lexer->source + start_pos, size);
 
     lexeme[size] = '\0';
-
 
     enum TokenType token_type;
 
