@@ -1,5 +1,6 @@
 #ifndef CMINUSINTERPRETATOR_AST_H
 #define CMINUSINTERPRETATOR_AST_H
+#include <stddef.h>
 
 
 enum ASTNodeType {
@@ -11,6 +12,8 @@ enum ASTNodeType {
     AST_NUMBER,
     AST_ASSIGN,
     AST_ARROW,
+    AST_BLOCK,
+    AST_STRING,
 };
 
 typedef struct ASTNode{
@@ -20,6 +23,7 @@ typedef struct ASTNode{
     union {
         int number_value;
         char* identifier_name;
+        char* string_value;
 
         struct {
             struct ASTNode *left;
@@ -41,9 +45,17 @@ typedef struct ASTNode{
             struct ASTNode *target;
             char* field;
         }Arrow;
+        struct {
+            struct ASTNode **items;
+            size_t count;
+            size_t capacity;
+        }Block;
+
     }data;
 }ASTNode;
 
+
+ASTNode* create_ast_string(const char* val, int line);
 ASTNode* create_ast_binop(ASTNode *left, ASTNode *right, int op, int line);
 ASTNode* create_ast_num(int val, int line);
 ASTNode* create_ast_ident(const char* name, int line);

@@ -73,6 +73,13 @@ ASTNode *create_ast_writeln(ASTNode *expression, const int line) {
 
     return node;
 }
+ASTNode* create_ast_string(const char* val, int line) {
+    ASTNode *node = malloc(sizeof(ASTNode));
+    node->type = AST_STRING;
+    node->line = line;
+    node->data.string_value = strdup(val);
+    return node;
+}
 
 ASTNode *create_ast_arrow(ASTNode *target, const char* value, const int line) {
     ASTNode *node = create_ast(AST_ARROW, line);

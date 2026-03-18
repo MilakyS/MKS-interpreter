@@ -51,6 +51,30 @@ struct Token Read_Number(struct Lexer *lexer) {
 
     return token;
 }
+struct Token Read_String(struct Lexer *lexer) {
+    advance(lexer);
+    size_t start_pos = lexer->position;
+
+    while (lexer->current_char != '"' && lexer->current_char != '\0') {
+        advance(lexer);
+    }
+
+    size_t size = lexer->position - start_pos;
+    char *str = malloc(size + 1);
+    memcpy(str, lexer->source + start_pos, size);
+    str[size] = '\0';
+
+    if (lexer->current_char == '"') {
+        advance(lexer);
+    }
+
+    struct Token token;
+    token.type = TOKEN_TYPE_STRING;
+    token.line = lexer->line;
+    token.lexeme = str;
+
+    return token;
+}
 
 char peek(const struct Lexer *lexer) {
     if (lexer->current_char == '\0') {
@@ -58,6 +82,7 @@ char peek(const struct Lexer *lexer) {
     }
     return lexer->source[lexer->position + 1];
 }
+
 
 struct Token Read_Keywords(struct Lexer *lexer) {
     const size_t start_pos = lexer->position;
@@ -118,30 +143,37 @@ struct Token lexer_next(struct Lexer *lexer) {
             if (peek(lexer) == ':') {
                 advance(lexer);
                 advance(lexer);
-
-                return make_token(TOKEN_ASSIGN, nullptr, lexer->line);
+                return make_token(TOKEN_ASSIGN, NULL, lexer->line);
             }
             advance(lexer);
-            return make_token(TOKEN_ERROR, nullptr, lexer->line);
+            return make_token(TOKEN_ERROR, NULL, lexer->line);
         case '+':
             if (peek(lexer) == '+') {
                 advance(lexer);
                 advance(lexer);
-                return make_token(TOKEN_INCREMENT, nullptr, lexer->line);
+                return make_token(TOKEN_INCREMENT, NULL, lexer->line);
             }
             advance(lexer);
-            return make_token(TOKEN_PLUS, nullptr, lexer->line);
+            return make_token(TOKEN_PLUS, NULL, lexer->line);
         case '-':
             if (peek(lexer) == '>') {
                 advance(lexer);
                 advance(lexer);
-                return make_token(TOKEN_ARROW, nullptr, lexer->line);
+                return make_token(TOKEN_ARROW, NULL, lexer->line);
             }
             advance(lexer);
-            return make_token(TOKEN_MINUS, nullptr, lexer->line);
+            return make_token(TOKEN_MINUS, NULL, lexer->line);
         case ';':
             advance(lexer);
-            return make_token(TOKEN_SEMICOLON, nullptr, lexer->line);
+            return make_token(TOKEN_SEMICOLON, NULL, lexer->line);
+        case '(':
+            advance(lexer);
+            return make_token(TOKEN_LPAREL, NULL, lexer->line);
+        case ')':
+            advance(lexer);
+            return make_token(TOKEN_RPAREL, NULL, lexer->line);
+        case '"':
+            return Read_String(lexer);
 
         default:
             if (isalpha(c) || c == '_') {
@@ -151,6 +183,6 @@ struct Token lexer_next(struct Lexer *lexer) {
                 return Read_Number(lexer);
             }
             advance(lexer);
-            return make_token(TOKEN_ERROR, "Error: Unknow Char", lexer->line);
+            return make_token(TOKEN_ERROR, "Error: Unknown Char", lexer->line);
     }
 }
