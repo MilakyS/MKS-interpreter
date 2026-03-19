@@ -14,6 +14,8 @@ enum ASTNodeType {
     AST_ARROW,
     AST_BLOCK,
     AST_STRING,
+    AST_IF_BLOCK,
+    AST_WHILE,
 };
 
 typedef struct ASTNode{
@@ -50,7 +52,15 @@ typedef struct ASTNode{
             size_t count;
             size_t capacity;
         }Block;
-
+        struct {
+            struct ASTNode *condition;
+            struct ASTNode *body;
+            struct ASTNode *else_body;
+        }IfBlck;
+        struct {
+            struct ASTNode *condition;
+            struct ASTNode *body;
+        }While;
     }data;
 }ASTNode;
 
@@ -63,6 +73,9 @@ ASTNode* create_ast_var_decl(ASTNode *value, int line, const char* name);
 ASTNode* create_ast_writeln(ASTNode *expression, int line);
 ASTNode* create_ast_arrow(ASTNode *target, const char* value, int line);
 ASTNode* create_ast_assign(ASTNode *value, const char *name, int line);
+ASTNode* create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block, int line);
+ASTNode* create_ast_block(ASTNode **items, int count, int line);
+ASTNode* create_while_block(ASTNode *condition, ASTNode *body, int line);
 
 void delete_ast_node(ASTNode *node);
 

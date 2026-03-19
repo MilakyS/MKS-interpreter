@@ -59,6 +59,27 @@ ASTNode *create_ast_var_decl(ASTNode *value, const int line, const char *name) {
     return node;
 }
 
+ASTNode* create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block, int line) {
+    ASTNode *node = create_ast(AST_IF_BLOCK, line);
+    node->type = AST_IF_BLOCK;
+    node->line = line;
+    node->data.IfBlck.condition = condition;
+    node->data.IfBlck.body = body;
+    node->data.IfBlck.else_body = else_block;
+    return node;
+}
+
+ASTNode* create_ast_block(ASTNode **items, int count, int line) {
+    ASTNode *node = malloc(sizeof(ASTNode));
+    node->type = AST_BLOCK;
+    node->line = line;
+    node->data.Block.items = items;
+    node->data.Block.count = count;
+    return node;
+}
+
+
+
 ASTNode *create_ast_assign(ASTNode *value, const char *name, const int line) {
     ASTNode *node = create_ast(AST_ASSIGN, line);
     node->data.Assign.name = ast_dup(name);
@@ -73,6 +94,16 @@ ASTNode *create_ast_writeln(ASTNode *expression, const int line) {
 
     return node;
 }
+ASTNode* create_while_block(ASTNode *condition, ASTNode *body, const int line) {
+    ASTNode *node = create_ast(AST_WHILE, line);
+    node->type = AST_WHILE;
+    node->line = line;
+    node->data.While.condition = condition;
+    node->data.While.body = body;
+
+    return node;
+}
+
 ASTNode* create_ast_string(const char* val, const int line) {
     ASTNode *node = malloc(sizeof(ASTNode));
     node->type = AST_STRING;

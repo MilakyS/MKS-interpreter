@@ -15,4 +15,5 @@ add_executable(CMinusInterpretator main.c
         Parser/AST.c
         Parser/parser.c
         Eval/eval.h
-        Eval/eval.c)
+        Eval/eval.c
+        main.h)

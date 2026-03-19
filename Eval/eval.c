@@ -66,6 +66,30 @@ RuntimeValue eval(ASTNode *node, Environment *env) {
 
         case AST_IDENTIFIER:
             return env_get(env, node->data.identifier_name);
+        case AST_BLOCK: {
+            RuntimeValue last_val = make_int(0);
+
+            for (int i = 0; i < node->data.Block.count; i++) {
+                last_val = eval(node->data.Block.items[i], env);
+            }
+            return last_val;
+        }
+        case AST_IF_BLOCK: {
+            RuntimeValue cond = eval(node->data.IfBlck.condition, env);
+
+            if (cond.type == VAL_INT && cond.data.int_value != 0) {
+                return eval(node->data.IfBlck.body, env);
+            }
+
+            else if (node->data.IfBlck.else_body != NULL) {
+                return eval(node->data.IfBlck.else_body, env);
+            }
+
+            return make_int(0);
+        }
+
+
+
 
         case AST_BINOP: {
             RuntimeValue left_val = eval(node->data.binop.left, env);
@@ -79,9 +103,22 @@ RuntimeValue eval(ASTNode *node, Environment *env) {
             int op = node->data.binop.op;
             if (op == TOKEN_PLUS) return make_int(left_val.data.int_value + right_val.data.int_value);
             if (op == TOKEN_MINUS) return make_int(left_val.data.int_value - right_val.data.int_value);
+            if (op == TOKEN_EQ) {
+                return make_int(left_val.data.int_value == right_val.data.int_value);
+            }
+            if (op == TOKEN_NOT_EQ) {
+                return make_int(left_val.data.int_value != right_val.data.int_value);
+            }
 
             printf("Runtime Error: Unknown operator\n");
             exit(1);
+        }
+
+        case AST_WHILE: {
+           while (eval(node->data.While.condition, env).data.int_value != 0) {
+               eval(node->data.While.body, env);
+           }
+            return make_int(0);
         }
 
         case AST_VAR_DECL: {

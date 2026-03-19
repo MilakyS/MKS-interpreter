@@ -1,8 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
 #include "Lexer/lexer.h"
 #include "Parser/parser.h"
 #include "Eval/eval.h"
+
+
+bool debug_mode = false;
+
+
 
 
 char* read_file(const char* filename) {
@@ -31,6 +38,7 @@ char* read_file(const char* filename) {
 }
 
 int main(int argc, char **argv) {
+
     if (argc < 2) {
         printf("Monkey Kernel Syntax (MKS) Interpreter\n");
         printf("Usage: %s <filename.mks>\n", argv[0]);
@@ -42,6 +50,9 @@ int main(int argc, char **argv) {
 
     if (source == NULL) {
         return 1;
+    }
+    if (argc >= 3 && strcmp(argv[2], "-d") == 0) {
+        debug_mode = true;
     }
 
 

@@ -105,6 +105,15 @@ struct Token Read_Keywords(struct Lexer *lexer) {
     else if (strcmp(lexeme, "Writeln") == 0) {
         token_type = TOKEN_KW_WRITELN;
     }
+    else if (strcmp(lexeme, "if") == 0) {
+        token_type = TOKEN_KW_IF;
+    }
+    else if (strcmp(lexeme, "else") == 0) {
+        token_type = TOKEN_KW_ELSE;
+    }
+    else if (strcmp(lexeme, "while") == 0) {
+        token_type = TOKEN_KW_WHILE;
+    }
     else {
         token_type = TOKEN_IDENTIFIER;
     }
@@ -159,10 +168,18 @@ struct Token lexer_next(struct Lexer *lexer) {
             if (peek(lexer) == '>') {
                 advance(lexer);
                 advance(lexer);
-                return make_token(TOKEN_ARROW, NULL, lexer->line);
+                return make_token(TOKEN_BLOCK_START, NULL, lexer->line);
             }
             advance(lexer);
             return make_token(TOKEN_MINUS, NULL, lexer->line);
+        case '<':
+            if (peek(lexer) == '-') {
+                advance(lexer);
+                advance(lexer);
+                return make_token(TOKEN_BLOCK_END, NULL, lexer->line);
+            }
+            advance(lexer);
+            return make_token(TOKEN_ERROR, "Unexpected '<'", lexer->line);
         case ';':
             advance(lexer);
             return make_token(TOKEN_SEMICOLON, NULL, lexer->line);
@@ -174,6 +191,23 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_token(TOKEN_RPAREL, NULL, lexer->line);
         case '"':
             return Read_String(lexer);
+        case '?':
+            if (peek(lexer) == '=') {
+                advance(lexer);
+                advance(lexer);
+                return make_token(TOKEN_EQ, "!?", lexer->line);
+            }
+            advance(lexer);
+            return make_token(TOKEN_ERROR, "Error: Expected '=' after '?'", lexer->line);
+
+        case '!':
+            if (peek(lexer) == '?') {
+                advance(lexer);
+                advance(lexer);
+                return make_token(TOKEN_NOT_EQ, "!?", lexer->line);
+            }
+            advance(lexer);
+            return make_token(TOKEN_ERROR, "Error: Expected '?' after '!'", lexer->line);
 
         default:
             if (isalpha(c) || c == '_') {

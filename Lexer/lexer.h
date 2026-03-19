@@ -19,7 +19,6 @@ enum TokenType {
     TOKEN_ASSIGN,  // =:
     TOKEN_EQ,  // =?
     TOKEN_NOT_EQ, // !?
-    TOKEN_ARROW,
     TOKEN_PLUS,
     TOKEN_MINUS,
 
@@ -35,6 +34,12 @@ enum TokenType {
     // Keywords
     TOKEN_KW_WRITELN,
     TOKEN_KW_VAR,
+    TOKEN_KW_IF,
+    TOKEN_KW_ELSE,
+    TOKEN_KW_WHILE,
+
+    TOKEN_BLOCK_START, // ->
+    TOKEN_BLOCK_END, // <-
 
 };
 
