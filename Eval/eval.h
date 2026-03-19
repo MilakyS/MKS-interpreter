@@ -1,5 +1,6 @@
 #ifndef CMINUSINTERPRETATOR_EVAL_H
 #define CMINUSINTERPRETATOR_EVAL_H
+#define TABLE_SIZE 512
 
 #include "../Parser/AST.h"
 
@@ -25,14 +26,14 @@ typedef struct EnvVar {
 } EnvVar;
 
 typedef struct Environment {
-    EnvVar *head;
+    EnvVar *buckets[TABLE_SIZE];
 } Environment;
 
 void env_init(Environment *env);
 void env_set(Environment *env, const char *name, RuntimeValue value);
-RuntimeValue env_get(Environment *env, const char *name);
+RuntimeValue env_get(const Environment *env, const char *name);
 
 // Теперь eval возвращает не int, а нашу универсальную структуру!
-RuntimeValue eval(ASTNode *node, Environment *env);
+RuntimeValue eval(const ASTNode *node, Environment *env);
 
 #endif //CMINUSINTERPRETATOR_EVAL_H
