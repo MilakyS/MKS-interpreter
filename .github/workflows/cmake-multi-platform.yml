@@ -78,8 +78,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: mks-${{ matrix.os }}-${{ matrix.c_compiler }}
-        path: |
-          ${{ steps.strings.outputs.build-output-dir }}/mks_run
-          ${{ steps.strings.outputs.build-output-dir }}/mks_run.exe
-          ${{ steps.strings.outputs.build-output-dir }}/Release/mks_run.exe
-          ${{ steps.strings.outputs.build-output-dir }}/Debug/mks_run.exe
+        path: ${{ steps.strings.outputs.build-output-dir }}/**/mks_run*
