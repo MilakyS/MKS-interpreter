@@ -60,12 +60,12 @@ int main(int argc, char **argv) {
     Token_init(&lexer, source);
 
     Parser parser;
-    parser_init(&parser, &lexer, NULL);
+    parser_init(&parser, &lexer);
 
     Environment env;
     env_init(&env);
 
-    while (parser.current_token != NULL && parser.current_token->type != TOKEN_EOF) {
+    while (parser.current_token.type != TOKEN_EOF) {
         ASTNode *stmt = parser_parse(&parser);
 
         if (stmt != NULL) {

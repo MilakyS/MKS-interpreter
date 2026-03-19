@@ -27,6 +27,37 @@ static ASTNode *create_ast(const enum ASTNodeType type, const int line) {
     return node;
 }
 
+unsigned int hash(const char *str) {
+    unsigned int hash = 5381;
+    int c;
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c;
+    return hash;
+}
+
+ASTNode *create_ast_ident(const char *name, const int line) {
+    ASTNode *node = create_ast(AST_IDENTIFIER, line);
+    node->data.identifier.name = ast_dup(name);
+    node->data.var_decl.id_hash = hash(name);
+    return node;
+}
+
+ASTNode *create_ast_assign(ASTNode *value, const char *name, const int line) {
+    ASTNode *node = create_ast(AST_ASSIGN, line);
+    node->data.Assign.name = ast_dup(name);
+    node->data.Assign.value = value;
+    node->data.Assign.id_hash = hash(name); // Считаем тут
+    return node;
+}
+
+ASTNode *create_ast_var_decl(ASTNode *value, const int line, const char *name) {
+    ASTNode *node = create_ast(AST_VAR_DECL, line);
+    node->data.var_decl.name = ast_dup(name);
+    node->data.var_decl.value = value;
+    node->data.var_decl.id_hash = hash(name); // И тут
+    return node;
+}
+
 
 ASTNode *create_ast_num(const int val, const int line) {
     ASTNode *node = create_ast(AST_NUMBER, line);
@@ -35,12 +66,6 @@ ASTNode *create_ast_num(const int val, const int line) {
     return node;
 }
 
-ASTNode *create_ast_ident(const char *name, const int line) {
-    ASTNode *node = create_ast(AST_IDENTIFIER, line);
-    node->data.identifier_name = ast_dup(name);
-
-    return node;
-}
 
 ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, const int op, const int line) {
     ASTNode *node = create_ast(AST_BINOP, line);
@@ -51,18 +76,9 @@ ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, const int op, const int
     return node;
 }
 
-ASTNode *create_ast_var_decl(ASTNode *value, const int line, const char *name) {
-    ASTNode *node = create_ast(AST_VAR_DECL, line);
-    node->data.var_decl.name = ast_dup(name);
-    node->data.var_decl.value = value;
-
-    return node;
-}
 
 ASTNode* create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block, int line) {
     ASTNode *node = create_ast(AST_IF_BLOCK, line);
-    node->type = AST_IF_BLOCK;
-    node->line = line;
     node->data.IfBlck.condition = condition;
     node->data.IfBlck.body = body;
     node->data.IfBlck.else_body = else_block;
@@ -70,23 +86,12 @@ ASTNode* create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block,
 }
 
 ASTNode* create_ast_block(ASTNode **items, int count, int line) {
-    ASTNode *node = malloc(sizeof(ASTNode));
-    node->type = AST_BLOCK;
-    node->line = line;
+    ASTNode *node = create_ast(AST_BLOCK, line);
     node->data.Block.items = items;
     node->data.Block.count = count;
     return node;
 }
 
-
-
-ASTNode *create_ast_assign(ASTNode *value, const char *name, const int line) {
-    ASTNode *node = create_ast(AST_ASSIGN, line);
-    node->data.Assign.name = ast_dup(name);
-    node->data.Assign.value = value;
-
-    return node;
-}
 
 ASTNode *create_ast_writeln(ASTNode *expression, const int line) {
     ASTNode *node = create_ast(AST_WRITELN, line);
@@ -96,8 +101,6 @@ ASTNode *create_ast_writeln(ASTNode *expression, const int line) {
 }
 ASTNode* create_while_block(ASTNode *condition, ASTNode *body, const int line) {
     ASTNode *node = create_ast(AST_WHILE, line);
-    node->type = AST_WHILE;
-    node->line = line;
     node->data.While.condition = condition;
     node->data.While.body = body;
 
@@ -105,10 +108,8 @@ ASTNode* create_while_block(ASTNode *condition, ASTNode *body, const int line) {
 }
 
 ASTNode* create_ast_string(const char* val, const int line) {
-    ASTNode *node = malloc(sizeof(ASTNode));
-    node->type = AST_STRING;
-    node->line = line;
-    node->data.string_value = strdup(val);
+    ASTNode *node = create_ast(AST_STRING, line);
+    node->data.string_value = ast_dup(val);
     return node;
 }
 
@@ -136,7 +137,13 @@ void delete_ast_node(ASTNode *node) {
             break;
 
         case AST_IDENTIFIER:
-            free(node->data.identifier_name);
+            free(node->data.identifier.name);
+            break;
+        case AST_BLOCK:
+            for (int i = 0; i < node->data.Block.count; i++) {
+                delete_ast_node(node->data.Block.items[i]);
+            }
+            free(node->data.Block.items);
             break;
 
         case AST_BINOP:

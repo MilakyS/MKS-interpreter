@@ -24,7 +24,10 @@ typedef struct ASTNode{
 
     union {
         int number_value;
-        char* identifier_name;
+        struct {
+            char* name;
+            unsigned int id_hash;
+        } identifier;
         char* string_value;
 
         struct {
@@ -35,6 +38,7 @@ typedef struct ASTNode{
         struct {
             char* name;
             struct ASTNode *value;
+            unsigned int id_hash;
         }var_decl;
         struct {
             struct ASTNode *expression;
@@ -42,6 +46,7 @@ typedef struct ASTNode{
         struct {
             char* name;
             struct ASTNode *value;
+            unsigned int id_hash;
         }Assign;
         struct {
             struct ASTNode *target;

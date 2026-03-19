@@ -7,11 +7,11 @@
 
 typedef struct {
     struct Lexer *lexer;
-    struct Token *current_token;
+    struct Token current_token;
 }Parser;
 
-void parser_init(Parser *parser, struct Lexer *lexer, struct Token *current_token);
-
+void parser_init(Parser *parser, struct Lexer *lexer);
+void parser_eat(Parser *parser, enum TokenType expected_type);
 ASTNode* parser_parse(Parser *parser);
 
 
