@@ -5,7 +5,7 @@
 #include <string.h>
 
 char *ast_dup(const char *str) {
-    if (!str) return nullptr;
+    if (!str) return NULL;
 
     const size_t len = strlen(str);
     char *copy = malloc(len + 1);
@@ -18,7 +18,7 @@ char *ast_dup(const char *str) {
 static ASTNode *create_ast(const enum ASTNodeType type, const int line) {
     ASTNode *node = malloc(sizeof(*node));
 
-    if (!node) return nullptr;
+    if (!node) return NULL;
 
     memset(node, 0, sizeof(*node));
     node->line = line;
@@ -73,7 +73,7 @@ ASTNode *create_ast_writeln(ASTNode *expression, const int line) {
 
     return node;
 }
-ASTNode* create_ast_string(const char* val, int line) {
+ASTNode* create_ast_string(const char* val, const int line) {
     ASTNode *node = malloc(sizeof(ASTNode));
     node->type = AST_STRING;
     node->line = line;
@@ -84,14 +84,14 @@ ASTNode* create_ast_string(const char* val, int line) {
 ASTNode *create_ast_arrow(ASTNode *target, const char* value, const int line) {
     ASTNode *node = create_ast(AST_ARROW, line);
     if (!node) {
-        return nullptr;
+        return NULL;
     }
     node->data.Arrow.target = target;
     node->data.Arrow.field = ast_dup(value);
 
     if (value && !node->data.Arrow.field) {
         free(node);
-        return nullptr;
+        return NULL;
     }
 
     return node;

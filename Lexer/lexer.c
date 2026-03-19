@@ -47,7 +47,7 @@ struct Token Read_Number(struct Lexer *lexer) {
     token.type = TOKEN_TYPE_NUMBER;
     token.int_value = value;
     token.line = lexer->line;
-    token.lexeme = nullptr;
+    token.lexeme = NULL;
 
     return token;
 }
@@ -132,7 +132,7 @@ struct Token lexer_next(struct Lexer *lexer) {
     skip_whitespace(lexer);
 
     if (lexer->current_char == '\0') {
-        return make_token(TOKEN_EOF, nullptr, lexer->line);
+        return make_token(TOKEN_EOF, NULL, lexer->line);
     }
 
     const char c = lexer->current_char;

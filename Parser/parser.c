@@ -27,23 +27,23 @@ ASTNode* parser_parse_expression(Parser *parser);
 ASTNode* parser_parse_statement(Parser *parser);
 
 ASTNode* parser_parse_factor(Parser *parser) {
-    struct Token *tok = parser->current_token;
+    const struct Token *tok = parser->current_token;
 
     if (tok->type == TOKEN_TYPE_NUMBER) {
-        int val = tok->int_value;
-        int line = tok->line;
+        const int val = tok->int_value;
+        const int line = tok->line;
         parser_eat(parser, TOKEN_TYPE_NUMBER);
         return create_ast_num(val, line);
     }
     else if (tok->type == TOKEN_TYPE_STRING) {
-        char *str = strdup(tok->lexeme);
-        int line = tok->line;
+        const char *str = strdup(tok->lexeme);
+        const int line = tok->line;
         parser_eat(parser, TOKEN_TYPE_STRING);
         return create_ast_string(str, line);
     }
     else if (tok->type == TOKEN_IDENTIFIER) {
-        char *name = strdup(tok->lexeme);
-        int line = tok->line;
+        const char *name = strdup(tok->lexeme);
+        const int line = tok->line;
         parser_eat(parser, TOKEN_IDENTIFIER);
         return create_ast_ident(name, line);
     }
@@ -78,14 +78,14 @@ ASTNode* parser_parse_expression(Parser *parser) {
 }
 
 ASTNode* parser_parse_statement(Parser *parser) {
-    struct Token *tok = parser->current_token;
+    const struct Token *tok = parser->current_token;
 
     // 1. Объявление переменной: var x =: 10;
     if (tok->type == TOKEN_KW_VAR) {
-        int line = tok->line;
+        const int line = tok->line;
         parser_eat(parser, TOKEN_KW_VAR);
 
-        char *name = strdup(parser->current_token->lexeme);
+        const char *name = strdup(parser->current_token->lexeme);
         parser_eat(parser, TOKEN_IDENTIFIER);
 
         parser_eat(parser, TOKEN_ASSIGN);
@@ -96,7 +96,7 @@ ASTNode* parser_parse_statement(Parser *parser) {
         return create_ast_var_decl(value, line, name);
     }
     else if (tok->type == TOKEN_KW_WRITELN) {
-        int line = tok->line;
+        const int line = tok->line;
         parser_eat(parser, TOKEN_KW_WRITELN);
         parser_eat(parser, TOKEN_LPAREL);
 
@@ -109,8 +109,8 @@ ASTNode* parser_parse_statement(Parser *parser) {
     }
 
     else if (tok->type == TOKEN_IDENTIFIER) {
-        int line = tok->line;
-        char *name = strdup(tok->lexeme);
+        const int line = tok->line;
+        const char *name = strdup(tok->lexeme);
         parser_eat(parser, TOKEN_IDENTIFIER);
 
         parser_eat(parser, TOKEN_ASSIGN);
