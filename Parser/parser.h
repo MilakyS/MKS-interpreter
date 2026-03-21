@@ -4,17 +4,14 @@
 #include "../Lexer/lexer.h"
 #include "AST.h"
 
-
-typedef struct {
+typedef struct Parser {
     struct Lexer *lexer;
-    struct Token *current_token;
-}Parser;
+    struct Token current_token;
+} Parser;
 
-void parser_init(Parser *parser, struct Lexer *lexer, struct Token *current_token);
+void parser_init(Parser *parser, struct Lexer *lexer);
+ASTNode* parser_parse_program(Parser *parser);
 
-ASTNode* parser_parse(Parser *parser);
+enum TokenType peek_token_type(Parser *parser);
 
-
-
-
-#endif //CMINUSINTERPRETATOR_PARSER_H
+#endif
