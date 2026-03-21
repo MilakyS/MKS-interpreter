@@ -12,4 +12,6 @@ typedef struct Parser {
 void parser_init(Parser *parser, struct Lexer *lexer);
 ASTNode* parser_parse_program(Parser *parser);
 
+enum TokenType peek_token_type(Parser *parser);
+
 #endif
