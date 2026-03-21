@@ -68,11 +68,26 @@ ASTNode* create_ast_block(ASTNode **items, int count, int line) {
     node->data.Block.count = count;
     return node;
 }
+ASTNode* create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNode *body) {
+    int line = init ? init->line : 0;
+    ASTNode *node = create_ast(AST_FOR, line);
+    node->data.For.init = init;
+    node->data.For.condition = condition;
+    node->data.For.step = step;
+    node->data.For.body = body;
+    return node;
+}
 
 ASTNode* create_while_block(ASTNode *condition, ASTNode *body, const int line) {
     ASTNode *node = create_ast(AST_WHILE, line);
     node->data.While.condition = condition;
     node->data.While.body = body;
+    return node;
+}
+ASTNode* create_ast_index(ASTNode *target, ASTNode *index, int line) {
+    ASTNode *node = create_ast(AST_INDEX, line);
+    node->data.Index.target = target;
+    node->data.Index.index = index;
     return node;
 }
 
@@ -96,6 +111,12 @@ ASTNode* create_ast_return(ASTNode *value, int line) {
     node->data.Return.value = value;
     return node;
 }
+ASTNode* create_ast_array(ASTNode **elements, int count, int line) {
+    ASTNode *node = create_ast(AST_ARRAY, line);
+    node->data.Array.items = elements;
+    node->data.Array.item_count = count;
+    return node;
+}
 
 ASTNode* create_ast_func_call(const char *name, ASTNode **args, int arg_count, int line) {
     ASTNode *node = create_ast(AST_FUNC_CALL, line);
@@ -104,12 +125,27 @@ ASTNode* create_ast_func_call(const char *name, ASTNode **args, int arg_count, i
     node->data.FuncCall.arg_count = arg_count;
     return node;
 }
+ASTNode* create_ast_using(const char* path, const char* alias, int line) {
+    ASTNode *node = create_ast(AST_USING, line);
+    node->data.Using.path = (char*)path;
+    node->data.Using.alias = (char*)alias;
+    return node;
+}
+
 
 ASTNode* create_ast_output(ASTNode **args, int count, bool is_newline, int line) {
     ASTNode *node = create_ast(AST_OUTPUT, line);
     node->data.Output.args = args;
     node->data.Output.arg_count = count;
     node->data.Output.is_newline = is_newline;
+    return node;
+}
+ASTNode* create_ast_method_call(ASTNode *target, const char *name, ASTNode **args, int arg_count, int line) {
+    ASTNode *node = create_ast(AST_METHOD_CALL, line);
+    node->data.MethodCall.target = target;
+    node->data.MethodCall.method_name = (char*)name;
+    node->data.MethodCall.args = args;
+    node->data.MethodCall.arg_count = arg_count;
     return node;
 }
 
@@ -162,6 +198,34 @@ void delete_ast_node(ASTNode *node) {
             free(node->data.FuncCall.name);
             for (int i = 0; i < node->data.FuncCall.arg_count; i++) delete_ast_node(node->data.FuncCall.args[i]);
             free(node->data.FuncCall.args);
+            break;
+        case AST_FOR:
+            delete_ast_node(node->data.For.init);
+            delete_ast_node(node->data.For.condition);
+            delete_ast_node(node->data.For.step);
+            delete_ast_node(node->data.For.body);
+            break;
+        case AST_INDEX:
+            delete_ast_node(node->data.Index.target);
+            delete_ast_node(node->data.Index.index);
+            break;
+        case AST_ARRAY:
+            for (int i = 0; i < node->data.Array.item_count; i++) {
+                delete_ast_node(node->data.Array.items[i]);
+            }
+            free(node->data.Array.items);
+            break;
+        case AST_METHOD_CALL:
+            delete_ast_node(node->data.MethodCall.target);
+            free(node->data.MethodCall.method_name);
+            for (int i = 0; i < node->data.MethodCall.arg_count; i++) {
+                delete_ast_node(node->data.MethodCall.args[i]);
+            }
+            free(node->data.MethodCall.args);
+            break;
+        case AST_USING:
+            free(node->data.Using.path);
+            if (node->data.Using.alias) free(node->data.Using.alias);
             break;
     }
     free(node);

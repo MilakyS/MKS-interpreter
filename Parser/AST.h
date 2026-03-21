@@ -18,6 +18,11 @@ enum ASTNodeType {
     AST_WHILE,
     AST_FUNC_DECL,
     AST_FUNC_CALL,
+    AST_FOR,
+    AST_INDEX,
+    AST_ARRAY,
+    AST_METHOD_CALL,
+    AST_USING,
 };
 
 typedef struct ASTNode {
@@ -46,6 +51,30 @@ typedef struct ASTNode {
         struct {
             struct ASTNode **args; int arg_count; bool is_newline;
         } Output;
+        struct {
+            struct ASTNode *init;
+            struct ASTNode *condition;
+            struct ASTNode *step;
+            struct ASTNode *body;
+        } For;
+        struct {
+            struct ASTNode *target;
+            struct ASTNode *index;
+        } Index;
+        struct {
+            struct ASTNode **items;
+            int item_count;
+        }Array;
+        struct {
+            struct ASTNode *target;
+            char *method_name;
+            struct ASTNode **args;
+            int arg_count;
+        } MethodCall;
+        struct {
+            char *path;
+            char *alias;
+        } Using;
     } data;
 } ASTNode;
 
@@ -62,6 +91,12 @@ ASTNode* create_ast_func_call(const char *name, ASTNode **args, int arg_count, i
 ASTNode* create_ast_func_decl(const char *name, char **params, int param_count, ASTNode *body, int line);
 ASTNode* create_ast_return(ASTNode *value, int line);
 ASTNode* create_ast_output(ASTNode **args, int count, bool is_newline, int line);
+ASTNode* create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNode *body);
+ASTNode* create_ast_index(ASTNode *target, ASTNode *index, int line);
+ASTNode* create_ast_array(ASTNode **elements, int count, int line);
+ASTNode* create_ast_method_call(ASTNode *target, const char *name, ASTNode **args, int arg_count, int line);
+ASTNode* create_ast_using(const char* path, const char* alias, int line);
+
 
 void delete_ast_node(ASTNode *node);
 

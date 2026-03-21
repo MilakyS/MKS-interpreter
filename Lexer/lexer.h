@@ -25,6 +25,15 @@ enum TokenType {
     TOKEN_RPAREL,
     TOKEN_EQ,
     TOKEN_NOT_EQ,
+    TOKEN_LESS,
+    TOKEN_GREATER,
+    TOKEN_GREATER_EQUAL,
+    TOKEN_LESS_EQUAL,
+    TOKEN_AND,
+    TOKEN_OR,
+    TOKEN_LBRACKET, // [
+    TOKEN_RBRACKET,  // ]
+    TOKEN_DOT,
 
     // KeyWords
     TOKEN_KW_VAR,
@@ -36,6 +45,8 @@ enum TokenType {
     TOKEN_KW_FNC,
     TOKEN_KW_CALL,
     TOKEN_KW_RETURN,
+    TOKEN_KW_FOR,
+    TOKEN_KW_USING,
 };
 
 struct Lexer {
