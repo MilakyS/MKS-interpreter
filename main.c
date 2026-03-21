@@ -13,7 +13,7 @@ char* read_file(const char* filename) {
     FILE *file = fopen(filename, "rb");
     if (!file) { printf("Error: Could not open file '%s'\n", filename); return NULL; }
     fseek(file, 0, SEEK_END);
-    long length = ftell(file);
+    const long length = ftell(file);
     fseek(file, 0, SEEK_SET);
     char *buffer = malloc(length + 1);
     fread(buffer, 1, length, file);
@@ -22,30 +22,40 @@ char* read_file(const char* filename) {
     return buffer;
 }
 
-RuntimeValue native_Read(RuntimeValue *args, int arg_count) {
+RuntimeValue native_Read(const RuntimeValue *args, const int arg_count) {
     if (arg_count > 0 && args[0].type == VAL_STRING) {
         printf("%s", args[0].data.string_value);
         fflush(stdout);
     }
 
-    if (arg_count > 0 && args[0].type == VAL_INT && args[0].data.int_value == 0) {
-        static char word[256];
-        if (scanf("%255s", word) == 1) {
-            return make_string(word);
-        }
+    char *line = NULL;
+    size_t len = 0;
+
+    if (getline(&line, &len, stdin) == -1) {
+        free(line);
         return make_string("");
     }
 
-    char *line = NULL;
-    size_t len = 0;
-    if (getline(&line, &len, stdin) != -1) {
-        if (line[strlen(line) - 1] == '\n') line[strlen(line) - 1] = '\0';
-        RuntimeValue res = make_string(line);
+
+    size_t l = strlen(line);
+    if (l > 0 && line[l - 1] == '\n') {
+        line[l - 1] = '\0';
+    }
+
+    if (arg_count > 0 &&
+        args[0].type == VAL_INT &&
+        args[0].data.float_value == 0) {
+
+        char word[256] = {0};
+        sscanf(line, "%255s", word);
+
+        const RuntimeValue res = make_string(word);
         free(line);
         return res;
-    }
+        }
+    const RuntimeValue res = make_string(line);
     free(line);
-    return make_string("");
+    return res;
 }
 
 void env_register_native(Environment *env, const char *name, NativeFn fn) {
@@ -56,7 +66,7 @@ void env_register_native(Environment *env, const char *name, NativeFn fn) {
     env_set(env, name, val);
 }
 
-int main(int argc, char **argv) {
+int main(const int argc, char **argv) {
     if (argc < 2) {
         printf("Monkey Kernel Syntax (MKS) Interpreter\n");
         printf("Usage: %s <filename.mks>\n", argv[0]);

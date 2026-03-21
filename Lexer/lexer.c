@@ -1,5 +1,6 @@
 #include "lexer.h"
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
 static void advance(struct Lexer *lexer) {
@@ -45,15 +46,26 @@ static struct Token make_token(enum TokenType type, const char* start, int lengt
 
 static struct Token Read_Number(struct Lexer *lexer) {
     const char *start = lexer->source + lexer->position;
-    int value = 0;
-    while (isdigit(lexer->current_char)) {
-        value = value * 10 + (lexer->current_char - '0');
-        advance(lexer);
+    int line = lexer->line;
+
+    while (isdigit(lexer->current_char)) advance(lexer);
+
+    if (lexer->current_char == '.' && isdigit(lexer->source[lexer->position + 1])) {
+        advance(lexer); // Скушали точку
+        while (isdigit(lexer->current_char)) advance(lexer);
     }
 
-    struct Token token = make_token(TOKEN_TYPE_NUMBER, start, (lexer->source + lexer->position) - start, lexer->line);
-    token.int_value = value;
+    int length = (int)(lexer->source + lexer->position - start);
+    char *temp = strndup(start, length);
 
+    struct Token token;
+    token.type = TOKEN_TYPE_NUMBER;
+    token.start = start;
+    token.length = length;
+    token.line = line;
+    token.double_value = atof(temp); // Записываем в double
+
+    free(temp);
     return token;
 }
 

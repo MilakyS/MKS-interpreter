@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+
 void parser_advance(Parser *parser) {
     if (parser->lexer != NULL) parser->current_token = lexer_next(parser->lexer);
 }
@@ -35,13 +36,25 @@ ASTNode* parser_parse_statement(Parser *parser);
 ASTNode* parser_parse_block(Parser *parser);
 
 ASTNode* parser_parse_expression(Parser *parser) {
+    // 1. Сначала парсим всю логику/математику
     ASTNode *node = parser_parse_logical_and(parser);
+
     while (parser->current_token.type == TOKEN_OR) {
         int op = parser->current_token.type;
         int line = parser->current_token.line;
         parser_eat(parser, TOKEN_OR);
         node = create_ast_binop(node, parser_parse_logical_and(parser), op, line);
     }
+
+    // 2. ФИКС: Если видим '=:', значит слева было имя или индекс, в который мы пишем
+    if (parser->current_token.type == TOKEN_ASSIGN) {
+        int line = parser->current_token.line;
+        parser_eat(parser, TOKEN_ASSIGN);
+        // Рекурсия для цепочек типа a =: b =: 5
+        ASTNode *rhs = parser_parse_expression(parser);
+        return create_ast_index_assign(node, rhs, line);
+    }
+
     return node;
 }
 
@@ -106,7 +119,7 @@ ASTNode* parser_parse_factor(Parser *parser) {
     int line = parser->current_token.line;
 
     if (parser->current_token.type == TOKEN_TYPE_NUMBER) {
-        int val = parser->current_token.int_value;
+        double val = parser->current_token.double_value;
         parser_eat(parser, TOKEN_TYPE_NUMBER);
         node = create_ast_num(val, line);
     }
@@ -115,10 +128,26 @@ ASTNode* parser_parse_factor(Parser *parser) {
         parser_eat(parser, TOKEN_TYPE_STRING);
         node = create_ast_string(str, line);
     }
+
     else if (parser->current_token.type == TOKEN_IDENTIFIER) {
         char *name = strndup(parser->current_token.start, parser->current_token.length);
         parser_eat(parser, TOKEN_IDENTIFIER);
-        node = create_ast_ident(name, line);
+
+        if (parser->current_token.type == TOKEN_LPAREL) {
+            parser_eat(parser, TOKEN_LPAREL);
+            ASTNode **args = calloc(16, sizeof(ASTNode*));
+            int a_count = 0;
+            if (parser->current_token.type != TOKEN_RPAREL) {
+                do {
+                    if (a_count > 0) parser_eat(parser, TOKEN_COMMA);
+                    args[a_count++] = parser_parse_expression(parser);
+                } while (parser->current_token.type == TOKEN_COMMA);
+            }
+            parser_eat(parser, TOKEN_RPAREL);
+            node = create_ast_func_call(name, args, a_count, line);
+        } else {
+            node = create_ast_ident(name, line);
+        }
     }
     else if (parser->current_token.type == TOKEN_LBRACKET) {
         parser_eat(parser, TOKEN_LBRACKET);
@@ -156,11 +185,11 @@ ASTNode* parser_parse_factor(Parser *parser) {
         parser_eat(parser, TOKEN_RPAREL);
     }
     else {
-        printf("\n[MKS Syntax Error] Line %d: Unexpected factor '%d' (Text: %.*s)\n",
-               line, parser->current_token.type, parser->current_token.length, parser->current_token.start);
+        printf("\n[MKS Syntax Error] Line %d: Unexpected factor '%d'\n", line, parser->current_token.type);
         exit(1);
     }
 
+    // ПОСТФИКСЫ: Индексы и Методы
     while (parser->current_token.type == TOKEN_LBRACKET || parser->current_token.type == TOKEN_DOT) {
         if (parser->current_token.type == TOKEN_LBRACKET) {
             parser_eat(parser, TOKEN_LBRACKET);
@@ -187,11 +216,13 @@ ASTNode* parser_parse_factor(Parser *parser) {
     return node;
 }
 
+// --- Инструкции (Statements) ---
+
 ASTNode* parser_parse_statement(Parser *parser) {
     enum TokenType type = parser->current_token.type;
+    int line = parser->current_token.line;
 
     if (type == TOKEN_KW_USING) {
-        int line = parser->current_token.line;
         parser_eat(parser, TOKEN_KW_USING);
         char *path = strndup(parser->current_token.start, parser->current_token.length);
         parser_eat(parser, TOKEN_TYPE_STRING);
@@ -206,15 +237,17 @@ ASTNode* parser_parse_statement(Parser *parser) {
     }
 
     if (type == TOKEN_KW_VAR) {
-        int line = parser->current_token.line; parser_eat(parser, TOKEN_KW_VAR);
+        parser_eat(parser, TOKEN_KW_VAR);
         char *name = strndup(parser->current_token.start, parser->current_token.length);
-        parser_eat(parser, TOKEN_IDENTIFIER); parser_eat(parser, TOKEN_ASSIGN);
-        ASTNode *val = parser_parse_expression(parser); parser_eat(parser, TOKEN_SEMICOLON);
+        parser_eat(parser, TOKEN_IDENTIFIER);
+        parser_eat(parser, TOKEN_ASSIGN);
+        ASTNode *val = parser_parse_expression(parser);
+        parser_eat(parser, TOKEN_SEMICOLON);
         return create_ast_var_decl(val, line, name);
     }
 
     if (type == TOKEN_KW_IF) {
-        int line = parser->current_token.line; parser_eat(parser, TOKEN_KW_IF);
+        parser_eat(parser, TOKEN_KW_IF);
         parser_eat(parser, TOKEN_LPAREL);
         ASTNode *cond = parser_parse_expression(parser);
         parser_eat(parser, TOKEN_RPAREL);
@@ -228,7 +261,7 @@ ASTNode* parser_parse_statement(Parser *parser) {
     }
 
     if (type == TOKEN_KW_WHILE) {
-        int line = parser->current_token.line; parser_eat(parser, TOKEN_KW_WHILE);
+        parser_eat(parser, TOKEN_KW_WHILE);
         parser_eat(parser, TOKEN_LPAREL);
         ASTNode *cond = parser_parse_expression(parser);
         parser_eat(parser, TOKEN_RPAREL);
@@ -242,6 +275,7 @@ ASTNode* parser_parse_statement(Parser *parser) {
         ASTNode *init = NULL;
         if (parser->current_token.type != TOKEN_SEMICOLON) {
             if (parser->current_token.type == TOKEN_KW_VAR) {
+                // Парсим VAR вручную, чтобы НЕ ЕСТЬ ';' в конце
                 int v_line = parser->current_token.line;
                 parser_eat(parser, TOKEN_KW_VAR);
                 char *v_name = strndup(parser->current_token.start, parser->current_token.length);
@@ -253,7 +287,7 @@ ASTNode* parser_parse_statement(Parser *parser) {
                 init = parser_parse_expression(parser);
             }
         }
-        parser_eat(parser, TOKEN_SEMICOLON);
+        parser_eat(parser, TOKEN_SEMICOLON); // Теперь это съест нужную точку с запятой
 
         ASTNode *cond = NULL;
         if (parser->current_token.type != TOKEN_SEMICOLON) {
@@ -263,25 +297,15 @@ ASTNode* parser_parse_statement(Parser *parser) {
 
         ASTNode *step = NULL;
         if (parser->current_token.type != TOKEN_RPAREL) {
-            if (parser->current_token.type == TOKEN_IDENTIFIER && peek_token_type(parser) == TOKEN_ASSIGN) {
-                int s_line = parser->current_token.line;
-                char *s_name = strndup(parser->current_token.start, parser->current_token.length);
-                parser_eat(parser, TOKEN_IDENTIFIER);
-                parser_eat(parser, TOKEN_ASSIGN);
-                ASTNode *step_val = parser_parse_expression(parser);
-                step = create_ast_assign(step_val, s_name, s_line);
-            } else {
-                step = parser_parse_expression(parser);
-            }
+            step = parser_parse_expression(parser);
         }
         parser_eat(parser, TOKEN_RPAREL);
 
         ASTNode *body = parser_parse_block(parser);
         return create_ast_for(init, cond, step, body);
     }
-
     if (type == TOKEN_KW_WRITELN || type == TOKEN_KW_WRITE) {
-        int line = parser->current_token.line; bool nl = (type == TOKEN_KW_WRITELN);
+        bool nl = (type == TOKEN_KW_WRITELN);
         parser_advance(parser); parser_eat(parser, TOKEN_LPAREL);
         ASTNode **args = calloc(16, sizeof(ASTNode*)); int count = 0;
         if (parser->current_token.type != TOKEN_RPAREL) {
@@ -291,16 +315,8 @@ ASTNode* parser_parse_statement(Parser *parser) {
         return create_ast_output(args, count, nl, line);
     }
 
-    if (type == TOKEN_IDENTIFIER && peek_token_type(parser) == TOKEN_ASSIGN) {
-        int line = parser->current_token.line;
-        char *name = strndup(parser->current_token.start, parser->current_token.length);
-        parser_eat(parser, TOKEN_IDENTIFIER); parser_eat(parser, TOKEN_ASSIGN);
-        ASTNode *val = parser_parse_expression(parser); parser_eat(parser, TOKEN_SEMICOLON);
-        return create_ast_assign(val, name, line);
-    }
-
     if (type == TOKEN_KW_FNC) {
-        int line = parser->current_token.line; parser_eat(parser, TOKEN_KW_FNC);
+        parser_eat(parser, TOKEN_KW_FNC);
         char *name = strndup(parser->current_token.start, parser->current_token.length);
         parser_eat(parser, TOKEN_IDENTIFIER); parser_eat(parser, TOKEN_LPAREL);
         char **params = calloc(10, sizeof(char*)); int p_count = 0;
@@ -312,11 +328,10 @@ ASTNode* parser_parse_statement(Parser *parser) {
     }
 
     if (type == TOKEN_KW_RETURN) {
-        int line = parser->current_token.line; parser_eat(parser, TOKEN_KW_RETURN);
+        parser_eat(parser, TOKEN_KW_RETURN);
         ASTNode *val = parser_parse_expression(parser); parser_eat(parser, TOKEN_SEMICOLON);
         return create_ast_return(val, line);
     }
-
     ASTNode *expr = parser_parse_expression(parser);
     if (parser->current_token.type == TOKEN_SEMICOLON) parser_eat(parser, TOKEN_SEMICOLON);
     return expr;

@@ -40,9 +40,16 @@ ASTNode *create_ast_var_decl(ASTNode *value, const int line, const char *name) {
     return node;
 }
 
-ASTNode *create_ast_num(const int val, const int line) {
+ASTNode *create_ast_num(const double val, const int line) {
     ASTNode *node = create_ast(AST_NUMBER, line);
     node->data.number_value = val;
+    return node;
+}
+ASTNode* create_ast_index_assign(ASTNode *left, ASTNode *right, int line) {
+    ASTNode *node = create_ast(AST_INDEX_ASSIGN, line);
+    if (!node) return NULL;
+    node->data.IndexAssign.left = left;
+    node->data.IndexAssign.right = right;
     return node;
 }
 
@@ -226,6 +233,10 @@ void delete_ast_node(ASTNode *node) {
         case AST_USING:
             free(node->data.Using.path);
             if (node->data.Using.alias) free(node->data.Using.alias);
+            break;
+        case AST_INDEX_ASSIGN:
+            delete_ast_node(node->data.IndexAssign.left);
+            delete_ast_node(node->data.IndexAssign.right);
             break;
     }
     free(node);

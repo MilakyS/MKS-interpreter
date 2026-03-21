@@ -23,6 +23,7 @@ enum ASTNodeType {
     AST_ARRAY,
     AST_METHOD_CALL,
     AST_USING,
+    AST_INDEX_ASSIGN,
 };
 
 typedef struct ASTNode {
@@ -30,7 +31,7 @@ typedef struct ASTNode {
     int line;
 
     union {
-        int number_value;
+        double number_value;
         struct { char* name; unsigned int id_hash; } identifier;
         char* string_value;
 
@@ -75,12 +76,17 @@ typedef struct ASTNode {
             char *path;
             char *alias;
         } Using;
+        struct {
+            struct ASTNode *left;
+            struct ASTNode *right;
+        } IndexAssign;
     } data;
 } ASTNode;
 
+ASTNode* create_ast_index_assign(ASTNode *left, ASTNode *right, int line);
 ASTNode* create_ast_string(const char* val, int line);
 ASTNode* create_ast_binop(ASTNode *left, ASTNode *right, int op, int line);
-ASTNode* create_ast_num(int val, int line);
+ASTNode* create_ast_num(double val, int line);
 ASTNode* create_ast_ident(const char* name, int line);
 ASTNode* create_ast_var_decl(ASTNode *value, int line, const char* name);
 ASTNode* create_ast_assign(ASTNode *value, const char *name, int line);

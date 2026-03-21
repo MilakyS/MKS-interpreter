@@ -1,7 +1,10 @@
-#ifndef CMINUSINTERPRETATOR_EVAL_H
-#define CMINUSINTERPRETATOR_EVAL_H
+//
+// Created by MilakyS on 21.03.2026.
+//
 
-#include "../Parser/AST.h"
+#ifndef MONKEYKERNELSYNTAX_ENV_H
+#define MONKEYKERNELSYNTAX_ENV_H
+#pragma once
 #include "../Runtime/value.h"
 
 #define TABLE_SIZE 256
@@ -19,11 +22,12 @@ typedef struct Environment {
 
 void env_init(Environment *env);
 void env_free(const Environment *env);
+Environment* env_create_child(Environment *parent);
+
 void env_set(Environment *env, const char *name, RuntimeValue value);
 
-RuntimeValue env_get_fast(const Environment *env, const char *name, const unsigned int h);
-void env_update_fast(Environment *env, const char *name, const unsigned int h, RuntimeValue value);
+RuntimeValue env_get_fast(const Environment *env, const char *name, unsigned int h);
 
-RuntimeValue eval(const ASTNode *node, Environment *env);
+void env_update_fast(Environment *env, const char *name, unsigned int h, RuntimeValue value);
 
-#endif
+#endif //MONKEYKERNELSYNTAX_ENV_H

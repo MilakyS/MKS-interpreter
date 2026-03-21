@@ -17,4 +17,17 @@ add_executable(mks_run main.c
         Parser/parser.c
         Eval/eval.h
         Eval/eval.c
-        main.h)
+        main.h
+        Runtime/value.h
+        Runtime/value.c
+        env/env.h
+        env/env.c
+        Runtime/output.h
+        Runtime/output.c
+        Runtime/operators.h
+        Runtime/operators.c
+        Utils/hash.h
+        Utils/hash.c
+        Runtime/functions.h
+        Runtime/functions.c
+)

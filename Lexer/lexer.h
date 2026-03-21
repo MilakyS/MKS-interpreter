@@ -63,8 +63,7 @@ struct Token {
     int length;
 
     union {
-        int int_value;
-        float float_value;
+        double double_value;
         bool bool_value;
         char char_value;
     };
