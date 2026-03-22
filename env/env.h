@@ -1,10 +1,6 @@
-//
-// Created by MilakyS on 21.03.2026.
-//
-
 #ifndef MONKEYKERNELSYNTAX_ENV_H
 #define MONKEYKERNELSYNTAX_ENV_H
-#pragma once
+
 #include "../Runtime/value.h"
 
 #define TABLE_SIZE 256
@@ -16,18 +12,16 @@ typedef struct EnvVar {
 } EnvVar;
 
 typedef struct Environment {
-    EnvVar *buckets[TABLE_SIZE];
+    GCObject gc;
+    struct EnvVar *buckets[TABLE_SIZE];
     struct Environment *parent;
 } Environment;
 
+
 void env_init(Environment *env);
-void env_free(const Environment *env);
+void env_set(Environment *env, const char *name, RuntimeValue value);
+RuntimeValue env_get_fast(const Environment *env, const char *name, unsigned int h);
+void env_update_fast(Environment *env, const char *name, unsigned int h, RuntimeValue value);
 Environment* env_create_child(Environment *parent);
 
-void env_set(Environment *env, const char *name, RuntimeValue value);
-
-RuntimeValue env_get_fast(const Environment *env, const char *name, unsigned int h);
-
-void env_update_fast(Environment *env, const char *name, unsigned int h, RuntimeValue value);
-
-#endif //MONKEYKERNELSYNTAX_ENV_H
+#endif

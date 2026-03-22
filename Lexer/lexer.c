@@ -51,62 +51,94 @@ static struct Token Read_Number(struct Lexer *lexer) {
     while (isdigit(lexer->current_char)) advance(lexer);
 
     if (lexer->current_char == '.' && isdigit(lexer->source[lexer->position + 1])) {
-        advance(lexer); // Скушали точку
+        advance(lexer);
         while (isdigit(lexer->current_char)) advance(lexer);
     }
 
     int length = (int)(lexer->source + lexer->position - start);
-    char *temp = strndup(start, length);
+
+
+    char temp_buf[64];
+    if (length < 63) {
+        strncpy(temp_buf, start, length);
+        temp_buf[length] = '\0';
+    }
 
     struct Token token;
     token.type = TOKEN_TYPE_NUMBER;
     token.start = start;
     token.length = length;
     token.line = line;
-    token.double_value = atof(temp); // Записываем в double
+    token.double_value = atof(temp_buf);
 
-    free(temp);
     return token;
 }
 
 static struct Token Read_String(struct Lexer *lexer) {
+    int line = lexer->line;
     advance(lexer);
     const char *start = lexer->source + lexer->position;
-    while (lexer->current_char != '"' && lexer->current_char != '\0') advance(lexer);
+
+    while (lexer->current_char != '"' && lexer->current_char != '\0') {
+        advance(lexer);
+    }
+
     int length = (lexer->source + lexer->position) - start;
-    if (lexer->current_char == '"') advance(lexer);
-    return make_token(TOKEN_TYPE_STRING, start, length, lexer->line);
+
+    if (lexer->current_char == '"') {
+        advance(lexer);
+    }
+
+    return make_token(TOKEN_TYPE_STRING, start, length, line);
 }
 
 static struct Token Read_Keywords(struct Lexer *lexer) {
     const char *start = lexer->source + lexer->position;
-    while (isalnum(lexer->current_char) || lexer->current_char == '_') advance(lexer);
-    int length = (lexer->source + lexer->position) - start;
+    int line = lexer->line;
+
+    while (isalnum(lexer->current_char) || lexer->current_char == '_') {
+        advance(lexer);
+    }
+
+    int length = (int)(lexer->source + lexer->position - start);
+
+    static const struct {
+        const char *kw;
+        enum TokenType type;
+    } keywords[] = {
+        {"if", TOKEN_KW_IF},
+        {"var", TOKEN_KW_VAR},
+        {"else", TOKEN_KW_ELSE},
+        {"while", TOKEN_KW_WHILE},
+        {"Write", TOKEN_KW_WRITE},
+        {"Writeln", TOKEN_KW_WRITELN},
+        {"fnc", TOKEN_KW_FNC},
+        {"call", TOKEN_KW_CALL},
+        {"return", TOKEN_KW_RETURN},
+        {"for", TOKEN_KW_FOR},
+        {"using", TOKEN_KW_USING},
+        {NULL, TOKEN_IDENTIFIER}
+    };
 
     enum TokenType type = TOKEN_IDENTIFIER;
-    if (length == 2 && strncmp(start, "if", 2) == 0) type = TOKEN_KW_IF;
-    else if (length == 3 && strncmp(start, "var", 3) == 0) type = TOKEN_KW_VAR;
-    else if (length == 4 && strncmp(start, "else", 4) == 0) type = TOKEN_KW_ELSE;
-    else if (length == 5 && strncmp(start, "while", 5) == 0) type = TOKEN_KW_WHILE;
-    else if (length == 5 && strncmp(start, "Write", 5) == 0) type = TOKEN_KW_WRITE;
-    else if (length == 7 && strncmp(start, "Writeln", 7) == 0) type = TOKEN_KW_WRITELN;
-    else if (length == 3 && strncmp(start, "fnc", 3) == 0) type = TOKEN_KW_FNC;
-    else if (length == 4 && strncmp(start, "call", 4) == 0) type = TOKEN_KW_CALL;
-    else if (length == 6 && strncmp(start, "return", 6) == 0) type = TOKEN_KW_RETURN;
-    else if (length == 3 && strncmp(start, "for", 3) == 0) type = TOKEN_KW_FOR;
-    else if (length == 5 && strncmp(start, "using", 5) == 0) type = TOKEN_KW_USING;
+    for (int i = 0; keywords[i].kw != NULL; i++) {
+        if (length == (int)strlen(keywords[i].kw) && strncmp(start, keywords[i].kw, length) == 0) {
+            type = keywords[i].type;
+            break;
+        }
+    }
 
-    return make_token(type, start, length, lexer->line);
+    return make_token(type, start, length, line);
 }
 
 struct Token lexer_next(struct Lexer *lexer) {
     skip_whitespace(lexer);
 
+    const char *start = lexer->source + lexer->position;
     if (lexer->current_char == '\0')
-        return make_token(TOKEN_EOF, lexer->source + lexer->position, 0, lexer->line);
+        return make_token(TOKEN_EOF, start, 0, lexer->line);
 
     const char c = lexer->current_char;
-    const char *start = lexer->source + lexer->position;
 
     switch (c) {
         case '=':
@@ -143,8 +175,8 @@ struct Token lexer_next(struct Lexer *lexer) {
         case ',': advance(lexer); return make_token(TOKEN_COMMA, start, 1, lexer->line);
         case ';': advance(lexer); return make_token(TOKEN_SEMICOLON, start, 1, lexer->line);
         case '(': advance(lexer); return make_token(TOKEN_LPAREL, start, 1, lexer->line);
-        case ')': advance(lexer); return make_token(TOKEN_RPAREL, start, 1, lexer->line);\
-        case '[': advance(lexer); return make_token(TOKEN_LBRACKET, start, 1, lexer->line);\
+        case ')': advance(lexer); return make_token(TOKEN_RPAREL, start, 1, lexer->line);
+        case '[': advance(lexer); return make_token(TOKEN_LBRACKET, start, 1, lexer->line);
         case ']': advance(lexer); return make_token(TOKEN_RBRACKET, start, 1, lexer->line);
         case '.': advance(lexer); return make_token(TOKEN_DOT, start, 1, lexer->line);
         case '"': return Read_String(lexer);

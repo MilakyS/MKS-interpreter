@@ -3,26 +3,10 @@
 
 #include "../Parser/AST.h"
 #include "../Runtime/value.h"
+#include "../env/env.h"
 
 #define TABLE_SIZE 256
 
-typedef struct EnvVar {
-    char *name;
-    RuntimeValue value;
-    struct EnvVar *next;
-} EnvVar;
-
-typedef struct Environment {
-    EnvVar *buckets[TABLE_SIZE];
-    struct Environment *parent;
-} Environment;
-
-void env_init(Environment *env);
-void env_free(const Environment *env);
-void env_set(Environment *env, const char *name, RuntimeValue value);
-
-RuntimeValue env_get_fast(const Environment *env, const char *name, const unsigned int h);
-void env_update_fast(Environment *env, const char *name, const unsigned int h, RuntimeValue value);
 
 RuntimeValue eval(const ASTNode *node, Environment *env);
 
