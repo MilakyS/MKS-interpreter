@@ -1,0 +1,76 @@
+name: MKS CI
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential make gcc
+
+      - name: Build
+        run: make clean && make
+
+      - name: Create stress test
+        run: |
+          cat > stress_test.mks <<'EOF'
+          Writeln("CI start");
+          var arr =: [];
+          for(var i =: 0; i < 1000; i =: i + 1) ->
+              arr.inject("item_" + i);
+          <-
+          Writeln(arr.size());
+
+          fnc fib(n) ->
+              if(n <= 1) ->
+                  return n;
+              <-
+              return fib(n - 1) + fib(n - 2);
+          <-
+
+          Writeln(fib(10));
+          Writeln("CI end");
+          EOF
+
+      - name: Run stress test
+        run: ./mks_run stress_test.mks
+
+  sanitizer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential make gcc
+
+      - name: Build sanitizer
+        run: make clean && make san
+
+      - name: Create sanitizer test
+        run: |
+          cat > san_test.mks <<'EOF'
+          var arr =: [];
+          for(var i =: 0; i < 2000; i =: i + 1) ->
+              arr.inject("x_" + i);
+          <-
+          Writeln(arr.size());
+          EOF
+
+      - name: Run sanitizer test
+        run: ASAN_OPTIONS=detect_leaks=1 ./mks_run_san san_test.mks
