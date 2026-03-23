@@ -1,0 +1,254 @@
+#include "parser.h"
+#include <stdlib.h>
+
+static ASTNode* parser_parse_assignment(Parser *parser);
+static ASTNode* parser_parse_logical_or(Parser *parser);
+static ASTNode* parser_parse_logical_and(Parser *parser);
+static ASTNode* parser_parse_comparison(Parser *parser);
+static ASTNode* parser_parse_equality(Parser *parser);
+static ASTNode* parser_parse_math(Parser *parser);
+static ASTNode* parser_parse_term(Parser *parser);
+static ASTNode* parser_parse_primary(Parser *parser);
+static ASTNode* parser_parse_postfix(Parser *parser, ASTNode *node);
+
+ASTNode* parser_parse_expression(Parser *parser) {
+    return parser_parse_assignment(parser);
+}
+
+static ASTNode* parser_parse_assignment(Parser *parser) {
+    ASTNode *node = parser_parse_logical_or(parser);
+
+    if (parser->current_token.type == TOKEN_ASSIGN) {
+        const int line = parser->current_token.line;
+        parser_eat(parser, TOKEN_ASSIGN);
+
+        ASTNode *rhs = parser_parse_assignment(parser);
+
+        if (node->type == AST_IDENTIFIER) {
+            ASTNode *assign_node = create_ast_assign(
+                node->data.identifier.name,
+                node->data.identifier.id_hash,
+                rhs,
+                line
+            );
+
+            free(node);
+            return assign_node;
+        }
+
+        return create_ast_index_assign(node, rhs, line);
+    }
+
+    return node;
+}
+
+static ASTNode* parser_parse_logical_or(Parser *parser) {
+    ASTNode *node = parser_parse_logical_and(parser);
+
+    while (parser->current_token.type == TOKEN_OR) {
+        const int op = parser->current_token.type;
+        const int line = parser->current_token.line;
+        parser_eat(parser, TOKEN_OR);
+        node = create_ast_binop(node, parser_parse_logical_and(parser), op, line);
+    }
+
+    return node;
+}
+
+static ASTNode* parser_parse_logical_and(Parser *parser) {
+    ASTNode *node = parser_parse_comparison(parser);
+
+    while (parser->current_token.type == TOKEN_AND) {
+        const int op = parser->current_token.type;
+        const int line = parser->current_token.line;
+        parser_eat(parser, TOKEN_AND);
+        node = create_ast_binop(node, parser_parse_comparison(parser), op, line);
+    }
+
+    return node;
+}
+
+static ASTNode* parser_parse_comparison(Parser *parser) {
+    ASTNode *node = parser_parse_equality(parser);
+
+    while (parser->current_token.type == TOKEN_LESS ||
+           parser->current_token.type == TOKEN_GREATER ||
+           parser->current_token.type == TOKEN_LESS_EQUAL ||
+           parser->current_token.type == TOKEN_GREATER_EQUAL) {
+
+        const int op = parser->current_token.type;
+        const int line = parser->current_token.line;
+        parser_eat(parser, op);
+        node = create_ast_binop(node, parser_parse_equality(parser), op, line);
+    }
+
+    return node;
+}
+
+static ASTNode* parser_parse_equality(Parser *parser) {
+    ASTNode *node = parser_parse_math(parser);
+
+    while (parser->current_token.type == TOKEN_EQ ||
+           parser->current_token.type == TOKEN_NOT_EQ) {
+
+        const int op = parser->current_token.type;
+        const int line = parser->current_token.line;
+        parser_eat(parser, op);
+        node = create_ast_binop(node, parser_parse_math(parser), op, line);
+    }
+
+    return node;
+}
+
+static ASTNode* parser_parse_math(Parser *parser) {
+    ASTNode *node = parser_parse_term(parser);
+
+    while (parser->current_token.type == TOKEN_PLUS ||
+           parser->current_token.type == TOKEN_MINUS) {
+
+        const int op = parser->current_token.type;
+        const int line = parser->current_token.line;
+        parser_eat(parser, op);
+        node = create_ast_binop(node, parser_parse_term(parser), op, line);
+    }
+
+    return node;
+}
+
+static ASTNode* parser_parse_term(Parser *parser) {
+    ASTNode *node = parser_parse_primary(parser);
+
+    while (parser->current_token.type == TOKEN_STAR ||
+           parser->current_token.type == TOKEN_SLASH ||
+           parser->current_token.type == TOKEN_MOD) {
+
+        const int op = parser->current_token.type;
+        const int line = parser->current_token.line;
+        parser_eat(parser, op);
+        node = create_ast_binop(node, parser_parse_primary(parser), op, line);
+    }
+
+    return node;
+}
+
+static ASTNode* parser_parse_primary(Parser *parser) {
+    ASTNode *node = NULL;
+    const int line = parser->current_token.line;
+
+    if (parser->current_token.type == TOKEN_TYPE_NUMBER) {
+        const double value = parser->current_token.double_value;
+        parser_eat(parser, TOKEN_TYPE_NUMBER);
+        node = create_ast_num(value, line);
+        return parser_parse_postfix(parser, node);
+    }
+
+    if (parser->current_token.type == TOKEN_TYPE_STRING) {
+        char *str = mks_strndup(
+            parser->current_token.start,
+            (size_t)parser->current_token.length
+        );
+        parser_eat(parser, TOKEN_TYPE_STRING);
+        node = create_ast_string(str, line);
+        return parser_parse_postfix(parser, node);
+    }
+
+    if (parser->current_token.type == TOKEN_IDENTIFIER) {
+        unsigned int name_hash = 0;
+        char *name = parser_take_identifier(parser, &name_hash);
+
+        if (parser->current_token.type == TOKEN_LPAREL) {
+            ASTNode **args = NULL;
+            int arg_count = 0;
+            int arg_cap = 0;
+
+            parser_eat(parser, TOKEN_LPAREL);
+
+            if (parser->current_token.type != TOKEN_RPAREL) {
+                do {
+                    ASTNode *arg = parser_parse_expression(parser);
+                    parser_push_ast(&args, &arg_count, &arg_cap, arg);
+                } while (parser_match(parser, TOKEN_COMMA));
+            }
+
+            parser_eat(parser, TOKEN_RPAREL);
+            node = create_ast_func_call(name, name_hash, args, arg_count, line);
+        } else {
+            node = create_ast_ident(name, name_hash, line);
+        }
+
+        return parser_parse_postfix(parser, node);
+    }
+
+    if (parser->current_token.type == TOKEN_LBRACKET) {
+        ASTNode **elements = NULL;
+        int count = 0;
+        int cap = 0;
+
+        parser_eat(parser, TOKEN_LBRACKET);
+
+        if (parser->current_token.type != TOKEN_RBRACKET) {
+            do {
+                ASTNode *elem = parser_parse_expression(parser);
+                parser_push_ast(&elements, &count, &cap, elem);
+            } while (parser_match(parser, TOKEN_COMMA));
+        }
+
+        parser_eat(parser, TOKEN_RBRACKET);
+        node = create_ast_array(elements, count, line);
+        return parser_parse_postfix(parser, node);
+    }
+
+    if (parser->current_token.type == TOKEN_LPAREL) {
+        parser_eat(parser, TOKEN_LPAREL);
+        node = parser_parse_expression(parser);
+        parser_eat(parser, TOKEN_RPAREL);
+        return parser_parse_postfix(parser, node);
+    }
+
+    parser_error(parser, "Unexpected token in expression");
+    return NULL;
+}
+
+static ASTNode* parser_parse_postfix(Parser *parser, ASTNode *node) {
+    while (parser->current_token.type == TOKEN_LBRACKET ||
+           parser->current_token.type == TOKEN_DOT) {
+
+        if (parser->current_token.type == TOKEN_LBRACKET) {
+            const int line = parser->current_token.line;
+            parser_eat(parser, TOKEN_LBRACKET);
+            ASTNode *index_expr = parser_parse_expression(parser);
+            parser_eat(parser, TOKEN_RBRACKET);
+            node = create_ast_index(node, index_expr, line);
+            continue;
+        }
+
+        if (parser->current_token.type == TOKEN_DOT) {
+            const int line = parser->current_token.line;
+            parser_eat(parser, TOKEN_DOT);
+
+            unsigned int method_hash = 0;
+            char *method_name = parser_take_identifier(parser, &method_hash);
+
+            ASTNode **args = NULL;
+            int arg_count = 0;
+            int arg_cap = 0;
+
+            if (parser->current_token.type == TOKEN_LPAREL) {
+                parser_eat(parser, TOKEN_LPAREL);
+
+                if (parser->current_token.type != TOKEN_RPAREL) {
+                    do {
+                        ASTNode *arg = parser_parse_expression(parser);
+                        parser_push_ast(&args, &arg_count, &arg_cap, arg);
+                    } while (parser_match(parser, TOKEN_COMMA));
+                }
+
+                parser_eat(parser, TOKEN_RPAREL);
+            }
+
+            node = create_ast_method_call(node, method_name, method_hash, args, arg_count, line);
+        }
+    }
+
+    return node;
+}

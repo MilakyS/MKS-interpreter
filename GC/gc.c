@@ -11,7 +11,7 @@ void gc_mark_value(RuntimeValue val);
 void gc_mark_env(Environment *env);
 void gc_mark_object(GCObject *obj);
 
-void gc_init(size_t initial_threshold) {
+void gc_init(const size_t initial_threshold) {
     mks_gc.head = NULL;
     mks_gc.allocated_bytes = 0;
     mks_gc.threshold = initial_threshold;
@@ -25,7 +25,7 @@ int gc_save_stack() {
     return mks_gc.roots_count;
 }
 
-void gc_restore_stack(int top) {
+void gc_restore_stack(const int top) {
     if (top >= 0 && top <= mks_gc.roots_count) {
         mks_gc.roots_count = top;
     }
@@ -66,8 +66,8 @@ void gc_pop_env() {
     if (mks_gc.env_roots_count > 0) mks_gc.env_roots_count--;
 }
 
-void *gc_alloc(size_t size, GCObjectType type) {
-    GCObject *obj = (GCObject*)malloc(size);
+void *gc_alloc(const size_t size, const GCObjectType type) {
+    const auto obj = (GCObject*)malloc(size);
     if (!obj) {
         fprintf(stderr, "[MKS GC] Fatal: Out of memory\n");
         exit(1);
@@ -88,7 +88,7 @@ void gc_mark_object(GCObject *obj) {
     obj->marked = true;
 
     if (obj->type == GC_OBJ_ARRAY) {
-        ManagedArray *arr = (ManagedArray*)obj;
+        const ManagedArray *arr = (ManagedArray*)obj;
         for (int i = 0; i < arr->count; i++) {
             gc_mark_value(arr->elements[i]);
         }
@@ -97,7 +97,7 @@ void gc_mark_object(GCObject *obj) {
     }
 }
 
-void gc_mark_value(RuntimeValue val) {
+void gc_mark_value(const RuntimeValue val) {
     if (val.type == VAL_STRING) gc_mark_object((GCObject*)val.data.managed_string);
     else if (val.type == VAL_ARRAY) gc_mark_object((GCObject*)val.data.managed_array);
     else if (val.type == VAL_OBJECT) gc_mark_object((GCObject*)val.data.obj_env);
@@ -108,7 +108,7 @@ void gc_mark_env(Environment *env) {
     ((GCObject*)env)->marked = true;
 
     for (int i = 0; i < TABLE_SIZE; i++) {
-        EnvVar *entry = env->buckets[i];
+        const EnvVar *entry = env->buckets[i];
         while (entry) {
             gc_mark_value(entry->value);
             entry = entry->next;
@@ -131,7 +131,7 @@ void gc_sweep() {
             } else if (unreached->type == GC_OBJ_ARRAY) {
                 free(((ManagedArray*)unreached)->elements);
             } else if (unreached->type == GC_OBJ_ENV || unreached->type == GC_OBJ_OBJECT) {
-                Environment *env = (Environment*)unreached;
+                const Environment *env = (Environment*)unreached;
                 for (int i = 0; i < TABLE_SIZE; i++) {
                     EnvVar *entry = env->buckets[i];
                     while (entry) {

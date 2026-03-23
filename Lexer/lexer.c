@@ -10,7 +10,7 @@ static void advance(struct Lexer *lexer) {
 }
 
 static char peek(const struct Lexer *lexer) {
-    if (lexer->current_char == '\0') return '\0';
+    if (lexer->source[lexer->position] == '\0') return '\0';
     return lexer->source[lexer->position + 1];
 }
 
@@ -23,7 +23,7 @@ void Token_init(struct Lexer *lexer, const char *source) {
 
 static void skip_whitespace(struct Lexer *lexer) {
     while (lexer->current_char != '\0') {
-        if (isspace(lexer->current_char)) {
+        if (isspace((unsigned char)lexer->current_char)) {
             advance(lexer);
         } else if (lexer->current_char == '/' && peek(lexer) == '/') {
             while (lexer->current_char != '\n' && lexer->current_char != '\0') {
@@ -35,47 +35,51 @@ static void skip_whitespace(struct Lexer *lexer) {
     }
 }
 
-static struct Token make_token(enum TokenType type, const char* start, int length, int line) {
+static struct Token make_token(const enum TokenType type, const char* start, const int length, const int line) {
     struct Token token;
     token.type = type;
     token.line = line;
     token.start = start;
     token.length = length;
+    token.double_value = 0.0;
     return token;
+}
+
+static struct Token make_error_token(const char* start, const int length, const int line) {
+    return make_token(TOKEN_ERROR, start, length, line);
 }
 
 static struct Token Read_Number(struct Lexer *lexer) {
     const char *start = lexer->source + lexer->position;
-    int line = lexer->line;
+    const int line = lexer->line;
 
-    while (isdigit(lexer->current_char)) advance(lexer);
+    while (isdigit((unsigned char)lexer->current_char)) advance(lexer);
 
-    if (lexer->current_char == '.' && isdigit(lexer->source[lexer->position + 1])) {
+    if (lexer->current_char == '.' &&
+        isdigit((unsigned char)lexer->source[lexer->position + 1])) {
         advance(lexer);
-        while (isdigit(lexer->current_char)) advance(lexer);
+        while (isdigit((unsigned char)lexer->current_char)) advance(lexer);
     }
 
-    int length = (int)(lexer->source + lexer->position - start);
+    const int length = (int)((lexer->source + lexer->position) - start);
 
-
-    char temp_buf[64];
-    if (length < 63) {
-        strncpy(temp_buf, start, length);
-        temp_buf[length] = '\0';
+    char *temp_buf = malloc((size_t)length + 1);
+    if (!temp_buf) {
+        return make_error_token(start, length, line);
     }
 
-    struct Token token;
-    token.type = TOKEN_TYPE_NUMBER;
-    token.start = start;
-    token.length = length;
-    token.line = line;
-    token.double_value = atof(temp_buf);
+    memcpy(temp_buf, start, (size_t)length);
+    temp_buf[length] = '\0';
 
+    struct Token token = make_token(TOKEN_TYPE_NUMBER, start, length, line);
+    token.double_value = strtod(temp_buf, NULL);
+
+    free(temp_buf);
     return token;
 }
 
 static struct Token Read_String(struct Lexer *lexer) {
-    int line = lexer->line;
+    const int line = lexer->line;
     advance(lexer);
     const char *start = lexer->source + lexer->position;
 
@@ -83,24 +87,25 @@ static struct Token Read_String(struct Lexer *lexer) {
         advance(lexer);
     }
 
-    int length = (lexer->source + lexer->position) - start;
+    const int length = (int)((lexer->source + lexer->position) - start);
 
-    if (lexer->current_char == '"') {
-        advance(lexer);
+    if (lexer->current_char == '\0') {
+        return make_error_token(start, length, line);
     }
 
+    advance(lexer);
     return make_token(TOKEN_TYPE_STRING, start, length, line);
 }
 
-static struct Token Read_Keywords(struct Lexer *lexer) {
+static struct Token Read_IdentifierOrKeyword(struct Lexer *lexer) {
     const char *start = lexer->source + lexer->position;
-    int line = lexer->line;
+    const int line = lexer->line;
 
-    while (isalnum(lexer->current_char) || lexer->current_char == '_') {
+    while (isalnum((unsigned char)lexer->current_char) || lexer->current_char == '_') {
         advance(lexer);
     }
 
-    int length = (int)(lexer->source + lexer->position - start);
+    const int length = (int)(lexer->source + lexer->position - start);
 
     static const struct {
         const char *kw;
@@ -122,7 +127,8 @@ static struct Token Read_Keywords(struct Lexer *lexer) {
 
     enum TokenType type = TOKEN_IDENTIFIER;
     for (int i = 0; keywords[i].kw != NULL; i++) {
-        if (length == (int)strlen(keywords[i].kw) && strncmp(start, keywords[i].kw, length) == 0) {
+        if (length == (int)strlen(keywords[i].kw) &&
+            strncmp(start, keywords[i].kw, (size_t)length) == 0) {
             type = keywords[i].type;
             break;
         }
@@ -143,30 +149,36 @@ struct Token lexer_next(struct Lexer *lexer) {
     switch (c) {
         case '=':
             if (peek(lexer) == ':') { advance(lexer); advance(lexer); return make_token(TOKEN_ASSIGN, start, 2, lexer->line); }
-            advance(lexer); return make_token(TOKEN_ERROR, start, 1, lexer->line);
+            advance(lexer); return make_error_token(start, 1, lexer->line);
+
         case '-':
             if (peek(lexer) == '>') { advance(lexer); advance(lexer); return make_token(TOKEN_BLOCK_START, start, 2, lexer->line); }
             advance(lexer); return make_token(TOKEN_MINUS, start, 1, lexer->line);
+
         case '<':
             if (peek(lexer) == '-') { advance(lexer); advance(lexer); return make_token(TOKEN_BLOCK_END, start, 2, lexer->line); }
             if (peek(lexer) == '=') { advance(lexer); advance(lexer); return make_token(TOKEN_LESS_EQUAL, start, 2, lexer->line); }
             advance(lexer); return make_token(TOKEN_LESS, start, 1, lexer->line);
+
         case '>':
             if (peek(lexer) == '=') { advance(lexer); advance(lexer); return make_token(TOKEN_GREATER_EQUAL, start, 2, lexer->line); }
             advance(lexer); return make_token(TOKEN_GREATER, start, 1, lexer->line);
+
         case '?':
             if (peek(lexer) == '=') { advance(lexer); advance(lexer); return make_token(TOKEN_EQ, start, 2, lexer->line); }
-            advance(lexer); return make_token(TOKEN_ERROR, start, 1, lexer->line);
+            advance(lexer); return make_error_token(start, 1, lexer->line);
+
         case '!':
             if (peek(lexer) == '?') { advance(lexer); advance(lexer); return make_token(TOKEN_NOT_EQ, start, 2, lexer->line); }
-            advance(lexer); return make_token(TOKEN_ERROR, start, 1, lexer->line);
+            advance(lexer); return make_error_token(start, 1, lexer->line);
 
         case '&':
             if (peek(lexer) == '&') { advance(lexer); advance(lexer); return make_token(TOKEN_AND, start, 2, lexer->line); }
-            advance(lexer); return make_token(TOKEN_ERROR, start, 1, lexer->line);
+            advance(lexer); return make_error_token(start, 1, lexer->line);
+
         case '|':
             if (peek(lexer) == '|') { advance(lexer); advance(lexer); return make_token(TOKEN_OR, start, 2, lexer->line); }
-            advance(lexer); return make_token(TOKEN_ERROR, start, 1, lexer->line);
+            advance(lexer); return make_error_token(start, 1, lexer->line);
 
         case '+': advance(lexer); return make_token(TOKEN_PLUS, start, 1, lexer->line);
         case '*': advance(lexer); return make_token(TOKEN_STAR, start, 1, lexer->line);
@@ -182,9 +194,9 @@ struct Token lexer_next(struct Lexer *lexer) {
         case '"': return Read_String(lexer);
 
         default:
-            if (isalpha(c) || c == '_') return Read_Keywords(lexer);
-            if (isdigit(c)) return Read_Number(lexer);
+            if (isalpha((unsigned char)c) || c == '_') return Read_IdentifierOrKeyword(lexer);
+            if (isdigit((unsigned char)c)) return Read_Number(lexer);
             advance(lexer);
-            return make_token(TOKEN_ERROR, start, 1, lexer->line);
+            return make_error_token(start, 1, lexer->line);
     }
 }

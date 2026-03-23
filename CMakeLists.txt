@@ -22,7 +22,6 @@ add_executable(mks_run
         Parser/parser.h
         Parser/AST.h
         Parser/AST.c
-        Parser/parser.c
 
         Eval/eval.h
         Eval/eval.c
@@ -60,6 +59,9 @@ add_executable(mks_run
         GC/gc.h
 
         Runtime/methods_cache.h
+        Parser/parser_core.c
+        Parser/parser_expr.c
+        Parser/parser_stmt.c
 )
 
 if(NOT MSVC)
