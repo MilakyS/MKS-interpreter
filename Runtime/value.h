@@ -10,7 +10,6 @@ struct Environment;
 
 typedef struct RuntimeValue RuntimeValue;
 
-
 typedef struct {
     GCObject gc;
     char *data;
@@ -58,6 +57,6 @@ struct RuntimeValue {
 RuntimeValue make_int(double val);
 RuntimeValue make_string(const char *str);
 RuntimeValue make_array(int initial_capacity);
-RuntimeValue make_null();
+RuntimeValue make_null(void);
 
 #endif

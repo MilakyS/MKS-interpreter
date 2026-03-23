@@ -2,53 +2,63 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
 
+static inline RuntimeValue unwrap(RuntimeValue v) {
+    if (v.type == VAL_RETURN) {
+        v.type = v.original_type;
+    }
+    return v;
+}
+
 RuntimeValue eval_index(const ASTNode *node, Environment *env) {
-    RuntimeValue target = eval(node->data.Index.target, env);
-    if (target.type == VAL_RETURN) target.type = target.original_type;
+    RuntimeValue target = unwrap(eval(node->data.index.target, env));
     gc_push_root(&target);
 
-    RuntimeValue idx_val = eval(node->data.Index.index, env);
+    RuntimeValue idx_val = unwrap(eval(node->data.index.index, env));
     int i = (int)idx_val.data.float_value;
 
     if (target.type == VAL_STRING) {
-        const char* s_data = target.data.managed_string->data;
-        int len = (int)strlen(s_data);
+        const char *s = target.data.managed_string->data;
+        int len = (int)strlen(s);
 
         if (i < 0 || i >= len) {
-            printf("Runtime Error: String index %d out of bounds (length %d)\n", i, len);
+            gc_pop_root();
+            fprintf(stderr, "Runtime Error: String index %d out of bounds (length %d)\n", i, len);
             exit(1);
         }
 
-        char tmp[2] = { s_data[i], '\0' };
+        char tmp[2] = { s[i], '\0' };
         gc_pop_root();
         return make_string(tmp);
     }
 
     if (target.type == VAL_ARRAY) {
         ManagedArray *arr = target.data.managed_array;
+
         if (i < 0 || i >= arr->count) {
-            printf("Runtime Error: Array index %d out of bounds (size %d)\n", i, arr->count);
+            gc_pop_root();
+            fprintf(stderr, "Runtime Error: Array index %d out of bounds (size %d)\n", i, arr->count);
             exit(1);
         }
 
-        RuntimeValue res = arr->elements[i];
+        RuntimeValue result = arr->elements[i];
         gc_pop_root();
-        return res;
+        return result;
     }
 
-    printf("Runtime Error: Type is not indexable\n");
+    gc_pop_root();
+    fprintf(stderr, "Runtime Error: Type is not indexable\n");
     exit(1);
 }
 
 RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
-    ASTNode *lhs = node->data.IndexAssign.left;
-    ASTNode *rhs = node->data.IndexAssign.right;
+    ASTNode *lhs = node->data.index_assign.left;
+    ASTNode *rhs = node->data.index_assign.right;
 
-    RuntimeValue val = eval(rhs, env);
-    if (val.type == VAL_RETURN) val.type = val.original_type;
+    RuntimeValue val = unwrap(eval(rhs, env));
     gc_push_root(&val);
 
     if (lhs->type == AST_IDENTIFIER) {
@@ -58,27 +68,35 @@ RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
     }
 
     if (lhs->type == AST_INDEX) {
-        RuntimeValue target = eval(lhs->data.Index.target, env);
+        RuntimeValue target = unwrap(eval(lhs->data.index.target, env));
         gc_push_root(&target);
 
-        RuntimeValue idx_expr = eval(lhs->data.Index.index, env);
-        int i = (int)idx_expr.data.float_value;
+        RuntimeValue idx_val = unwrap(eval(lhs->data.index.index, env));
+        int i = (int)idx_val.data.float_value;
 
-        if (target.type == VAL_ARRAY) {
-            ManagedArray *arr = target.data.managed_array;
-            if (i < 0 || i >= arr->count) {
-                printf("Runtime Error: Array index %d out of bounds in assignment\n", i);
-                exit(1);
-            }
-
-            arr->elements[i] = val;
-
+        if (target.type != VAL_ARRAY) {
             gc_pop_root();
             gc_pop_root();
-            return val;
+            fprintf(stderr, "Runtime Error: Only arrays support index assignment\n");
+            exit(1);
         }
+
+        ManagedArray *arr = target.data.managed_array;
+        if (i < 0 || i >= arr->count) {
+            gc_pop_root();
+            gc_pop_root();
+            fprintf(stderr, "Runtime Error: Array index %d out of bounds in assignment (size %d)\n", i, arr->count);
+            exit(1);
+        }
+
+        arr->elements[i] = val;
+
+        gc_pop_root();
+        gc_pop_root();
+        return val;
     }
 
-    printf("Runtime Error: Invalid index assignment target\n");
+    gc_pop_root();
+    fprintf(stderr, "Runtime Error: Invalid index assignment target\n");
     exit(1);
 }

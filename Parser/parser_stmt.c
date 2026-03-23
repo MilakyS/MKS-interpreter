@@ -163,6 +163,8 @@ static ASTNode* parser_parse_while(Parser *parser) {
 }
 
 static ASTNode* parser_parse_for(Parser *parser) {
+    const int line = parser->current_token.line;
+
     parser_eat(parser, TOKEN_KW_FOR);
     parser_eat(parser, TOKEN_LPAREL);
 
@@ -198,7 +200,8 @@ static ASTNode* parser_parse_for(Parser *parser) {
     }
     parser_eat(parser, TOKEN_RPAREL);
 
-    return create_ast_for(init, condition, step, parser_parse_block(parser));
+    ASTNode *body = parser_parse_block(parser);
+    return create_ast_for(init, condition, step, body, line);
 }
 
 static ASTNode* parser_parse_output(Parser *parser, bool newline) {

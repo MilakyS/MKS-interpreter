@@ -7,21 +7,25 @@
 
 typedef struct EnvVar {
     char *name;
+    unsigned int hash;
     RuntimeValue value;
     struct EnvVar *next;
 } EnvVar;
 
 typedef struct Environment {
     GCObject gc;
-    struct EnvVar *buckets[TABLE_SIZE];
+    EnvVar *buckets[TABLE_SIZE];
     struct Environment *parent;
 } Environment;
 
-
 void env_init(Environment *env);
+Environment* env_create_child(Environment *parent);
+void env_free(const Environment *env);
+
 void env_set(Environment *env, const char *name, RuntimeValue value);
+void env_set_fast(Environment *env, const char *name, unsigned int h, RuntimeValue value);
+
 RuntimeValue env_get_fast(const Environment *env, const char *name, unsigned int h);
 void env_update_fast(Environment *env, const char *name, unsigned int h, RuntimeValue value);
-Environment* env_create_child(Environment *parent);
 
 #endif

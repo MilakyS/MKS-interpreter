@@ -1,71 +1,82 @@
 #include "control_flow.h"
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
-#include <stdlib.h>
+
+static inline RuntimeValue unwrap(RuntimeValue v) {
+    if (v.type == VAL_RETURN) {
+        v.type = v.original_type;
+    }
+    return v;
+}
 
 RuntimeValue eval_block(const ASTNode *node, Environment *env) {
     RuntimeValue last = make_int(0);
-    for (size_t i = 0; i < node->data.Block.count; i++) {
-        if (mks_gc.allocated_bytes > mks_gc.threshold) {
-            gc_collect(env, env);
-        }
 
-        last = eval(node->data.Block.items[i], env);
-        if (last.type == VAL_RETURN) return last;
+    for (int i = 0; i < node->data.block.count; i++) {
+        gc_check(env);
+
+        last = eval(node->data.block.items[i], env);
+        if (last.type == VAL_RETURN) {
+            return last;
+        }
     }
+
     return last;
 }
 
 RuntimeValue eval_if(const ASTNode *node, Environment *env) {
-    RuntimeValue cond = eval(node->data.IfBlck.condition, env);
+    RuntimeValue cond = unwrap(eval(node->data.if_block.condition, env));
 
     if (cond.data.float_value != 0.0) {
-        return eval(node->data.IfBlck.body, env);
-    } else if (node->data.IfBlck.else_body) {
-        return eval(node->data.IfBlck.else_body, env);
+        return eval(node->data.if_block.body, env);
     }
+
+    if (node->data.if_block.else_body != NULL) {
+        return eval(node->data.if_block.else_body, env);
+    }
+
     return make_int(0);
 }
 
 RuntimeValue eval_while(const ASTNode *node, Environment *env) {
-    while (eval(node->data.While.condition, env).data.float_value != 0.0) {
-        if (mks_gc.allocated_bytes > mks_gc.threshold) {
-            gc_collect(env, env);
-        }
+    while (unwrap(eval(node->data.while_block.condition, env)).data.float_value != 0.0) {
+        gc_check(env);
 
-        RuntimeValue res = eval(node->data.While.body, env);
-        if (res.type == VAL_RETURN) return res;
+        RuntimeValue res = eval(node->data.while_block.body, env);
+        if (res.type == VAL_RETURN) {
+            return res;
+        }
     }
+
     return make_int(0);
 }
 
 RuntimeValue eval_for(const ASTNode *node, Environment *env) {
     Environment *local = env_create_child(env);
-
     gc_push_env(local);
 
-    if (node->data.For.init != NULL) {
-        eval(node->data.For.init, local);
+    if (node->data.for_block.init != NULL) {
+        eval(node->data.for_block.init, local);
     }
 
     while (1) {
-        if (mks_gc.allocated_bytes > mks_gc.threshold) {
-            gc_collect(env, local);
+        gc_check(local);
+
+        if (node->data.for_block.condition != NULL) {
+            RuntimeValue cond = unwrap(eval(node->data.for_block.condition, local));
+            if (cond.data.float_value == 0.0) {
+                break;
+            }
         }
 
-        if (node->data.For.condition != NULL) {
-            RuntimeValue cond = eval(node->data.For.condition, local);
-            if (cond.data.float_value == 0.0) break;
-        }
-
-        RuntimeValue res = eval(node->data.For.body, local);
+        RuntimeValue res = eval(node->data.for_block.body, local);
         if (res.type == VAL_RETURN) {
             gc_pop_env();
             return res;
         }
 
-        if (node->data.For.step != NULL) {
-            eval(node->data.For.step, local);
+        if (node->data.for_block.step != NULL) {
+            eval(node->data.for_block.step, local);
         }
     }
 

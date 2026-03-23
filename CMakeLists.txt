@@ -3,15 +3,11 @@ project(MonkeyKernelSyntax C)
 
 set(CMAKE_C_STANDARD 23)
 
-if(NOT MSVC)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
-endif()
-
+option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
 
 if(MSVC)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 endif()
-
 
 add_executable(mks_run
         main.c
@@ -22,6 +18,9 @@ add_executable(mks_run
         Parser/parser.h
         Parser/AST.h
         Parser/AST.c
+        Parser/parser_core.c
+        Parser/parser_expr.c
+        Parser/parser_stmt.c
 
         Eval/eval.h
         Eval/eval.c
@@ -51,18 +50,41 @@ add_executable(mks_run
 
         Runtime/methods.c
         Runtime/methods.h
+        Runtime/methods_cache.h
 
         Runtime/control_flow.c
         Runtime/control_flow.h
 
         GC/gc.c
         GC/gc.h
-
-        Runtime/methods_cache.h
-        Parser/parser_core.c
-        Parser/parser_expr.c
-        Parser/parser_stmt.c
 )
+
+# 🔥 ОПТИМИЗАЦИЯ
+if(NOT MSVC)
+    target_compile_options(mks_run PRIVATE -Wall -Wextra -pedantic)
+endif()
+
+# 🧠 RELEASE = -O3
+if(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT MSVC)
+    target_compile_options(mks_run PRIVATE -O3)
+endif()
+
+# 🧪 SANITIZER
+if(ENABLE_ASAN)
+    if(MSVC)
+        target_compile_options(mks_run PRIVATE /fsanitize=address /Zi)
+        target_link_options(mks_run PRIVATE /fsanitize=address)
+    else()
+        target_compile_options(mks_run PRIVATE
+                -fsanitize=address,undefined
+                -g -O1
+                -fno-omit-frame-pointer
+        )
+        target_link_options(mks_run PRIVATE
+                -fsanitize=address,undefined
+        )
+    endif()
+endif()
 
 if(NOT MSVC)
     target_link_libraries(mks_run PRIVATE m)
