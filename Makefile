@@ -1,8 +1,8 @@
 CC = gcc
 
-CFLAGS = -std=c23 -Wall -Wextra -pedantic -O3
-DEBUG_FLAGS = -std=c23 -Wall -Wextra -pedantic -g -O0
-SAN_FLAGS = -std=c23 -Wall -Wextra -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer
+CFLAGS = -std=c2x -Wall -Wextra -pedantic -O3
+DEBUG_FLAGS = -std=c2x -Wall -Wextra -pedantic -g -O0
+SAN_FLAGS = -std=c2x -Wall -Wextra -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer
 
 LDFLAGS = -lm
 SAN_LDFLAGS = -fsanitize=address,undefined -lm
@@ -32,7 +32,6 @@ SRC = \
 OBJ = $(SRC:.c=.o)
 SAN_OBJ = $(SRC:.c=.san.o)
 
-# 🔥 Release
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
@@ -41,7 +40,6 @@ $(TARGET): $(OBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# 🧪 Sanitizer build
 san: clean $(SAN_TARGET)
 
 $(SAN_TARGET): $(SAN_OBJ)
