@@ -65,27 +65,31 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
         char buf_r[128];
         const char *s_l = NULL;
         const char *s_r = NULL;
+        size_t len_l, len_r;
 
         if (left_val.type == VAL_INT) {
             snprintf(buf_l, sizeof(buf_l), "%g", left_val.data.float_value);
             s_l = buf_l;
+            len_l = strlen(s_l);
         } else if (left_val.type == VAL_STRING) {
             s_l = left_val.data.managed_string->data;
+            len_l = left_val.data.managed_string->len;
         } else {
             s_l = "[Object]";
+            len_l = strlen(s_l);
         }
 
         if (right_val.type == VAL_INT) {
             snprintf(buf_r, sizeof(buf_r), "%g", right_val.data.float_value);
             s_r = buf_r;
+            len_r = strlen(s_r);
         } else if (right_val.type == VAL_STRING) {
             s_r = right_val.data.managed_string->data;
+            len_r = right_val.data.managed_string->len;
         } else {
             s_r = "[Object]";
+            len_r = strlen(s_r);
         }
-
-        const size_t len_l = strlen(s_l);
-        const size_t len_r = strlen(s_r);
 
         char *res_str = (char *)malloc(len_l + len_r + 1);
         if (res_str == NULL) {
@@ -96,9 +100,10 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
         }
 
         memcpy(res_str, s_l, len_l);
-        memcpy(res_str + len_l, s_r, len_r + 1);
+        memcpy(res_str + len_l, s_r, len_r);
+        res_str[len_l + len_r] = '\0';
 
-        RuntimeValue out = make_string(res_str);
+        RuntimeValue out = make_string_len(res_str, len_l + len_r);
         free(res_str);
 
         gc_pop_root();

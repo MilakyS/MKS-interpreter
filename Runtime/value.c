@@ -36,6 +36,7 @@ RuntimeValue make_string(const char *str) {
 
     if (str == NULL) {
         v.data.managed_string->data = mks_strdup("");
+        v.data.managed_string->len = 0;
         return v;
     }
 
@@ -81,6 +82,30 @@ RuntimeValue make_string(const char *str) {
 
     processed[p_idx] = '\0';
     v.data.managed_string->data = processed;
+    v.data.managed_string->len = p_idx;
+
+    return v;
+}
+
+RuntimeValue make_string_len(const char *str, size_t len) {
+    RuntimeValue v;
+    v.type = VAL_STRING;
+    v.original_type = VAL_STRING;
+
+    v.data.managed_string = (ManagedString *)gc_alloc(sizeof(ManagedString), GC_OBJ_STRING);
+    v.data.managed_string->len = len;
+
+    char *copy = (char *)malloc(len + 1);
+    if (copy == NULL) {
+        fprintf(stderr, "[MKS Value Error] Out of memory while creating string\n");
+        exit(1);
+    }
+
+    if (str != NULL && len > 0) {
+        memcpy(copy, str, len);
+    }
+    copy[len] = '\0';
+    v.data.managed_string->data = copy;
 
     return v;
 }

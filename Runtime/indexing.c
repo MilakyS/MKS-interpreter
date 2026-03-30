@@ -22,7 +22,7 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
 
     if (target.type == VAL_STRING) {
         const char *s = target.data.managed_string->data;
-        int len = (int)strlen(s);
+        int len = (int)target.data.managed_string->len;
 
         if (i < 0 || i >= len) {
             gc_pop_root();

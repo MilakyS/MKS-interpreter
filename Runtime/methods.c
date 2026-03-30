@@ -227,7 +227,7 @@ static RuntimeValue m_string_len(RuntimeValue target, RuntimeValue *args, int ar
     UNUSED(arg_count);
     UNUSED(env);
 
-    return make_int((int)strlen(target.data.managed_string->data));
+    return make_int((double)target.data.managed_string->len);
 }
 
 static RuntimeValue m_string_empty(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
@@ -235,7 +235,7 @@ static RuntimeValue m_string_empty(RuntimeValue target, RuntimeValue *args, int 
     UNUSED(arg_count);
     UNUSED(env);
 
-    return make_int(strlen(target.data.managed_string->data) == 0);
+    return make_int(target.data.managed_string->len == 0);
 }
 
 static MethodEntry string_methods[] = {
