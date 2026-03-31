@@ -1,0 +1,5 @@
+var s =: "a";
+for (var i =: 0; i < 100000; i =: i + 1) ->
+    s =: "a" + s;
+<-
+Writeln(s.len());

@@ -13,6 +13,7 @@ typedef struct RuntimeValue RuntimeValue;
 typedef struct {
     GCObject gc;
     char *data;
+    size_t len;
 } ManagedString;
 
 typedef struct {
@@ -56,6 +57,9 @@ struct RuntimeValue {
 
 RuntimeValue make_int(double val);
 RuntimeValue make_string(const char *str);
+RuntimeValue make_string_raw(const char *str);
+RuntimeValue make_string_owned(char *str, size_t len);
+RuntimeValue make_string_len(const char *str, size_t len);
 RuntimeValue make_array(int initial_capacity);
 RuntimeValue make_null(void);
 

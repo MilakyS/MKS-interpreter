@@ -1,0 +1,15 @@
+var a =: 0;
+for (var i =: 0; i < 10; i =: i + 1) ->
+    for (var j =: 0; j < 10; j =: j + 1) ->
+        for (var k =: 0; k < 10; k =: k + 1) ->
+            for (var l =: 0; l < 10; l =: l + 1) ->
+                for (var m =: 0; m < 10; m =: m + 1) ->
+                    for (var n =: 0; n < 10; n =: n + 1) ->
+                        a =: a + 1;
+                    <-
+                <-
+            <-
+        <-
+    <-
+<-
+Writeln(a);

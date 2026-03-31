@@ -1,0 +1,7 @@
+var s =: "abcdefghij";
+var res =: "";
+for (var i =: 0; i < 100000; i =: i + 1) ->
+    var c =: s[i % 10];
+    res =: c;
+<-
+Writeln(res);

@@ -1,0 +1,8 @@
+var a =: 1;
+var b =: 2;
+var c =: 3;
+for (var i =: 0; i < 1000000; i =: i + 1) ->
+    var x =: a + b * c;
+    var y =: x / 2;
+<-
+Writeln("Done");

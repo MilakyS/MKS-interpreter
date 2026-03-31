@@ -1,7 +1,6 @@
 #include "indexing.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
@@ -17,12 +16,12 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
     RuntimeValue target = unwrap(eval(node->data.index.target, env));
     gc_push_root(&target);
 
-    RuntimeValue idx_val = unwrap(eval(node->data.index.index, env));
+    const RuntimeValue idx_val = unwrap(eval(node->data.index.index, env));
     int i = (int)idx_val.data.float_value;
 
     if (target.type == VAL_STRING) {
-        const char *s = target.data.managed_string->data;
-        int len = (int)strlen(s);
+        const ManagedString *str = target.data.managed_string;
+        const int len = (int)str->len;
 
         if (i < 0 || i >= len) {
             gc_pop_root();
@@ -30,13 +29,22 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
             exit(1);
         }
 
-        char tmp[2] = { s[i], '\0' };
+        char *tmp = (char *)malloc(2);
+        if (tmp == NULL) {
+            gc_pop_root();
+            fprintf(stderr, "Runtime Error: Out of memory in string indexing\n");
+            exit(1);
+        }
+
+        tmp[0] = str->data[i];
+        tmp[1] = '\0';
+
         gc_pop_root();
-        return make_string(tmp);
+        return make_string_owned(tmp, 1);
     }
 
     if (target.type == VAL_ARRAY) {
-        ManagedArray *arr = target.data.managed_array;
+        const ManagedArray *arr = target.data.managed_array;
 
         if (i < 0 || i >= arr->count) {
             gc_pop_root();
@@ -44,7 +52,7 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
             exit(1);
         }
 
-        RuntimeValue result = arr->elements[i];
+        const RuntimeValue result = arr->elements[i];
         gc_pop_root();
         return result;
     }
@@ -55,8 +63,8 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
 }
 
 RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
-    ASTNode *lhs = node->data.index_assign.left;
-    ASTNode *rhs = node->data.index_assign.right;
+    const ASTNode *lhs = node->data.index_assign.left;
+    const ASTNode *rhs = node->data.index_assign.right;
 
     RuntimeValue val = unwrap(eval(rhs, env));
     gc_push_root(&val);
@@ -71,8 +79,8 @@ RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
         RuntimeValue target = unwrap(eval(lhs->data.index.target, env));
         gc_push_root(&target);
 
-        RuntimeValue idx_val = unwrap(eval(lhs->data.index.index, env));
-        int i = (int)idx_val.data.float_value;
+        const RuntimeValue idx_val = unwrap(eval(lhs->data.index.index, env));
+        const int i = (int)idx_val.data.float_value;
 
         if (target.type != VAL_ARRAY) {
             gc_pop_root();
@@ -81,7 +89,7 @@ RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
             exit(1);
         }
 
-        ManagedArray *arr = target.data.managed_array;
+        const ManagedArray *arr = target.data.managed_array;
         if (i < 0 || i >= arr->count) {
             gc_pop_root();
             gc_pop_root();

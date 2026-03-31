@@ -1,0 +1,8 @@
+var arr =: [];
+for (var i =: 0; i < 100000; i =: i + 1) ->
+    arr.inject(i);
+<-
+for (var i =: 0; i < 100000; i =: i + 1) ->
+    arr.eject();
+<-
+Writeln(arr.size());

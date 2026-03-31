@@ -4,7 +4,7 @@
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
 
-static void print_value(const RuntimeValue *val) {
+void print_value(const RuntimeValue *val) {
     if (val == NULL) {
         printf("null");
         return;

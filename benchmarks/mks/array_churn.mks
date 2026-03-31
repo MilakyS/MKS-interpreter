@@ -1,0 +1,13 @@
+var arr =: [];
+for (var i =: 0; i < 10000; i =: i + 1) ->
+    var row =: [];
+    for (var j =: 0; j < 10; j =: j + 1) ->
+        row.inject(j);
+    <-
+    arr.inject(row);
+<-
+
+for (var i =: 0; i < 10000; i =: i + 1) ->
+    arr.exclude(0);
+<-
+Writeln(arr.size());

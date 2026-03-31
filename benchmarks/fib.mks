@@ -1,0 +1,9 @@
+fnc fib(n) ->
+    if (n < 2) ->
+        return n;
+    <-
+    return fib(n - 1) + fib(n - 2);
+<-
+
+var result =: fib(25);
+Writeln("Fib(25) = ", result);

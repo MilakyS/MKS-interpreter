@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <time.h>
 
 #include "Lexer/lexer.h"
 #include "Parser/parser.h"
@@ -9,6 +10,7 @@
 #include "GC/gc.h"
 #include "env/env.h"
 #include "Utils/hash.h"
+#include "Runtime/output.h"
 
 bool debug_mode = false;
 
@@ -104,10 +106,16 @@ int main(const int argc, char **argv) {
     if (argc < 2) {
         printf("Monkey Kernel Syntax (MKS) Interpreter\n");
         printf("Usage: %s <filename.mks>\n", argv[0]);
+        printf("       %s --vm-test\n", argv[0]);
         return 1;
     }
 
     gc_init(1024 * 1024);
+    const char *gc_debug = getenv("MKS_GC_DEBUG");
+    if (gc_debug != NULL && strcmp(gc_debug, "1") == 0) {
+        gc_set_debug(1);
+        fprintf(stderr, "[MKS] GC debug enabled\n");
+    }
 
     char *source = read_file(argv[1]);
     if (!source) {
@@ -126,12 +134,22 @@ int main(const int argc, char **argv) {
 
     env_register_native(env, "Read", native_Read);
 
+    clock_t start = clock();
+
     ASTNode *program = parser_parse_program(&parser);
     if (program != NULL) {
         eval(program, env);
     }
 
+    clock_t end = clock();
+    double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+
     gc_collect(env, env);
+
+    fprintf(stderr, "\n--- Performance Metrics ---\n");
+    fprintf(stderr, "Execution time: %.4f seconds\n", cpu_time_used);
+    gc_dump_stats();
+    fprintf(stderr, "---------------------------\n");
 
     gc_pop_env();
     delete_ast_node(program);

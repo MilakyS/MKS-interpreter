@@ -19,7 +19,14 @@ static char *mks_strdup(const char *src) {
     return copy;
 }
 
-RuntimeValue make_int(double val) {
+static ManagedString *alloc_managed_string(void) {
+    ManagedString *str = (ManagedString *)gc_alloc(sizeof(ManagedString), GC_OBJ_STRING);
+    str->data = NULL;
+    str->len = 0;
+    return str;
+}
+
+RuntimeValue make_int(const double val) {
     RuntimeValue v;
     v.type = VAL_INT;
     v.original_type = VAL_INT;
@@ -27,15 +34,69 @@ RuntimeValue make_int(double val) {
     return v;
 }
 
+RuntimeValue make_string_owned(char *str, size_t len) {
+    RuntimeValue v;
+    v.type = VAL_STRING;
+    v.original_type = VAL_STRING;
+
+    v.data.managed_string = alloc_managed_string();
+
+    if (str == NULL) {
+        v.data.managed_string->data = mks_strdup("");
+        v.data.managed_string->len = 0;
+        return v;
+    }
+
+    v.data.managed_string->data = str;
+    v.data.managed_string->len = len;
+    return v;
+}
+
+RuntimeValue make_string_len(const char *str, size_t len) {
+    RuntimeValue v;
+    v.type = VAL_STRING;
+    v.original_type = VAL_STRING;
+
+    v.data.managed_string = alloc_managed_string();
+
+    if (str == NULL) {
+        v.data.managed_string->data = mks_strdup("");
+        v.data.managed_string->len = 0;
+        return v;
+    }
+
+    char *copy = (char *)malloc(len + 1);
+    if (copy == NULL) {
+        fprintf(stderr, "[MKS Value Error] Out of memory while creating string\n");
+        exit(1);
+    }
+
+    memcpy(copy, str, len);
+    copy[len] = '\0';
+
+    v.data.managed_string->data = copy;
+    v.data.managed_string->len = len;
+    return v;
+}
+
+RuntimeValue make_string_raw(const char *str) {
+    if (str == NULL) {
+        return make_string_len("", 0);
+    }
+
+    return make_string_len(str, strlen(str));
+}
+
 RuntimeValue make_string(const char *str) {
     RuntimeValue v;
     v.type = VAL_STRING;
     v.original_type = VAL_STRING;
 
-    v.data.managed_string = (ManagedString *)gc_alloc(sizeof(ManagedString), GC_OBJ_STRING);
+    v.data.managed_string = alloc_managed_string();
 
     if (str == NULL) {
         v.data.managed_string->data = mks_strdup("");
+        v.data.managed_string->len = 0;
         return v;
     }
 
@@ -81,6 +142,7 @@ RuntimeValue make_string(const char *str) {
 
     processed[p_idx] = '\0';
     v.data.managed_string->data = processed;
+    v.data.managed_string->len = p_idx;
 
     return v;
 }

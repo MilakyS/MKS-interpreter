@@ -1,0 +1,10 @@
+var arr =: [];
+for (var i =: 0; i < 10000; i =: i + 1) ->
+    arr.inject(i);
+<-
+
+var sum =: 0;
+for (var j =: 0; j < arr.size(); j =: j + 1) ->
+    sum =: sum + arr[j];
+<-
+Writeln("Array sum: ", sum);

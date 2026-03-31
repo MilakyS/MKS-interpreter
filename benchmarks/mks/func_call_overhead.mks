@@ -1,0 +1,6 @@
+fnc add(a, b) -> return a + b; <-
+var s =: 0;
+for (var i =: 0; i < 100000; i =: i + 1) ->
+    s =: add(s, i);
+<-
+Writeln(s);
