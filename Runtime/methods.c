@@ -44,8 +44,6 @@ static RuntimeValue dispatch(
     return make_null();
 }
 
-
-
 static RuntimeValue m_array_size(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
     UNUSED(args);
     UNUSED(arg_count);
@@ -173,14 +171,13 @@ static MethodEntry array_methods[] = {
 
 #define ARRAY_METHODS_COUNT (sizeof(array_methods) / sizeof(array_methods[0]))
 
-
 static RuntimeValue m_string_upper(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
     UNUSED(args);
     UNUSED(arg_count);
     UNUSED(env);
 
     const char *src = target.data.managed_string->data;
-    size_t len = strlen(src);
+    const size_t len = target.data.managed_string->len;
 
     char *res_str = (char *)malloc(len + 1);
     if (res_str == NULL) {
@@ -193,9 +190,7 @@ static RuntimeValue m_string_upper(RuntimeValue target, RuntimeValue *args, int 
     }
     res_str[len] = '\0';
 
-    RuntimeValue res = make_string(res_str);
-    free(res_str);
-    return res;
+    return make_string_owned(res_str, len);
 }
 
 static RuntimeValue m_string_lower(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
@@ -204,7 +199,7 @@ static RuntimeValue m_string_lower(RuntimeValue target, RuntimeValue *args, int 
     UNUSED(env);
 
     const char *src = target.data.managed_string->data;
-    size_t len = strlen(src);
+    const size_t len = target.data.managed_string->len;
 
     char *res_str = (char *)malloc(len + 1);
     if (res_str == NULL) {
@@ -217,9 +212,7 @@ static RuntimeValue m_string_lower(RuntimeValue target, RuntimeValue *args, int 
     }
     res_str[len] = '\0';
 
-    RuntimeValue res = make_string(res_str);
-    free(res_str);
-    return res;
+    return make_string_owned(res_str, len);
 }
 
 static RuntimeValue m_string_len(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
@@ -227,7 +220,7 @@ static RuntimeValue m_string_len(RuntimeValue target, RuntimeValue *args, int ar
     UNUSED(arg_count);
     UNUSED(env);
 
-    return make_int((int)strlen(target.data.managed_string->data));
+    return make_int((double)target.data.managed_string->len);
 }
 
 static RuntimeValue m_string_empty(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
@@ -235,7 +228,7 @@ static RuntimeValue m_string_empty(RuntimeValue target, RuntimeValue *args, int 
     UNUSED(arg_count);
     UNUSED(env);
 
-    return make_int(strlen(target.data.managed_string->data) == 0);
+    return make_int(target.data.managed_string->len == 0);
 }
 
 static MethodEntry string_methods[] = {
@@ -290,7 +283,6 @@ RuntimeValue eval_method_call(const ASTNode *node, Environment *env) {
     return result;
 }
 
-
 static RuntimeValue handle_object_method(
     RuntimeValue target,
     const ASTNode *node,
@@ -309,15 +301,26 @@ static RuntimeValue handle_object_method(
     if (member.type == VAL_FUNC) {
         ASTNode *decl = member.data.func.node;
         Environment *local_env = env_create_child(target.data.obj_env);
+        gc_push_env(local_env);
 
-        int param_count = decl->data.func_decl.param_count;
-        int bind_count = (arg_count < param_count) ? arg_count : param_count;
+        const int param_count = decl->data.func_decl.param_count;
+        if (arg_count != param_count) {
+            gc_pop_env();
+            fprintf(stderr,
+                    "[MKS Runtime Error] Method '%s' expects %d arguments, got %d\n",
+                    node->data.method_call.method_name,
+                    param_count,
+                    arg_count);
+            exit(1);
+        }
 
-        for (int i = 0; i < bind_count; i++) {
+        for (int i = 0; i < param_count; i++) {
             env_set(local_env, decl->data.func_decl.params[i], args[i]);
         }
 
-        return unwrap(eval(decl->data.func_decl.body, local_env));
+        RuntimeValue result = unwrap(eval(decl->data.func_decl.body, local_env));
+        gc_pop_env();
+        return result;
     }
 
     return member;

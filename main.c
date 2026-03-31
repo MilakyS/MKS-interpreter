@@ -9,6 +9,7 @@
 #include "GC/gc.h"
 #include "env/env.h"
 #include "Utils/hash.h"
+#include "Runtime/output.h"
 
 bool debug_mode = false;
 
@@ -104,10 +105,16 @@ int main(const int argc, char **argv) {
     if (argc < 2) {
         printf("Monkey Kernel Syntax (MKS) Interpreter\n");
         printf("Usage: %s <filename.mks>\n", argv[0]);
+        printf("       %s --vm-test\n", argv[0]);
         return 1;
     }
 
     gc_init(1024 * 1024);
+    const char *gc_debug = getenv("MKS_GC_DEBUG");
+    if (gc_debug != NULL && strcmp(gc_debug, "1") == 0) {
+        gc_set_debug(1);
+        fprintf(stderr, "[MKS] GC debug enabled\n");
+    }
 
     char *source = read_file(argv[1]);
     if (!source) {

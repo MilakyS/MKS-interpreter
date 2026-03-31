@@ -8,4 +8,6 @@
 
 RuntimeValue eval_output(const ASTNode *node, struct Environment *env);
 
+void print_value(const RuntimeValue *val);
+
 #endif
