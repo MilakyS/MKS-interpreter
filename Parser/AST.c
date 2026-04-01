@@ -117,10 +117,11 @@ ASTNode *create_ast_return(ASTNode *value, int line) {
     return node;
 }
 
-ASTNode *create_ast_func_decl(char *name, char **params, int param_count, ASTNode *body, int line) {
+ASTNode *create_ast_func_decl(char *name, char **params,unsigned int *param_hashes, const int param_count,ASTNode *body, const int line) {
     ASTNode *node = create_ast(AST_FUNC_DECL, line);
     node->data.func_decl.name = name;
     node->data.func_decl.params = params;
+    node->data.func_decl.param_hashes = param_hashes;
     node->data.func_decl.param_count = param_count;
     node->data.func_decl.body = body;
     return node;
@@ -224,12 +225,16 @@ void delete_ast_node(ASTNode *node) {
 
         case AST_FUNC_DECL:
             free(node->data.func_decl.name);
+
             if (node->data.func_decl.params != NULL) {
                 for (int i = 0; i < node->data.func_decl.param_count; i++) {
                     free(node->data.func_decl.params[i]);
                 }
                 free(node->data.func_decl.params);
             }
+
+            free(node->data.func_decl.param_hashes);
+
             delete_ast_node(node->data.func_decl.body);
             break;
 

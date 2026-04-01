@@ -94,6 +94,7 @@ typedef struct ASTNode {
         struct {
             char *name;
             char **params;
+            unsigned int *param_hashes;
             int param_count;
             struct ASTNode *body;
         } func_decl;
@@ -152,7 +153,7 @@ ASTNode *create_while_block(ASTNode *condition, ASTNode *body, int line);
 ASTNode *create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNode *body, int line);
 ASTNode *create_ast_return(ASTNode *value, int line);
 
-ASTNode *create_ast_func_decl(char *name, char **params, int param_count, ASTNode *body, int line);
+ASTNode *create_ast_func_decl(char *name, char **params,unsigned int *param_hashes, int param_count,ASTNode *body, int line);
 ASTNode *create_ast_func_call(char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line);
 ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line);
 

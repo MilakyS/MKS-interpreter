@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "parser.h"
 #include <string.h>
 
@@ -233,8 +236,8 @@ static ASTNode* parser_parse_output(Parser *parser, bool newline) {
 static ASTNode* parser_parse_func_decl(Parser *parser) {
     const int line = parser->current_token.line;
     char **params = NULL;
+    unsigned int *param_hashes = NULL;
     int param_count = 0;
-    int param_cap = 0;
 
     parser_eat(parser, TOKEN_KW_FNC);
 
@@ -244,17 +247,45 @@ static ASTNode* parser_parse_func_decl(Parser *parser) {
     parser_eat(parser, TOKEN_LPAREL);
 
     if (parser->current_token.type != TOKEN_RPAREL) {
+        int param_cap = 0;
         do {
-            unsigned int param_hash_ignored = 0;
-            char *param = parser_take_identifier(parser, &param_hash_ignored);
-            parser_push_str(&params, &param_count, &param_cap, param);
+            unsigned int param_hash = 0;
+            char *param = parser_take_identifier(parser, &param_hash);
+
+            if (param_count >= param_cap) {
+                const int new_cap = (param_cap == 0) ? 4 : param_cap * 2;
+
+                char **tmp_params = realloc(params, sizeof(char *) * (size_t)new_cap);
+                if (tmp_params == NULL) {
+                    fprintf(stderr, "[MKS Parser Error] Out of memory while growing params array\n");
+                    exit(1);
+                }
+
+                unsigned int *tmp_hashes =
+                    realloc(param_hashes, sizeof(unsigned int) * (size_t)new_cap);
+                if (tmp_hashes == NULL) {
+                    fprintf(stderr, "[MKS Parser Error] Out of memory while growing param hashes array\n");
+                    exit(1);
+                }
+
+                params = tmp_params;
+                param_hashes = tmp_hashes;
+                param_cap = new_cap;
+            }
+            if (params == NULL || param_hashes == NULL) {
+                fprintf(stderr, "[MKS Parser Error] Internal allocation failure\n");
+                exit(1);
+            }
+            params[param_count] = param;
+            param_hashes[param_count] = param_hash;
+            param_count++;
         } while (parser_match(parser, TOKEN_COMMA));
     }
 
     parser_eat(parser, TOKEN_RPAREL);
 
     ASTNode *body = parser_parse_block(parser);
-    return create_ast_func_decl(func_name, params, param_count, body, line);
+    return create_ast_func_decl(func_name, params, param_hashes, param_count, body, line);
 }
 
 static ASTNode* parser_parse_return(Parser *parser) {

@@ -220,16 +220,21 @@ static void gc_mark_env(Environment *env) {
 
         obj->marked = true;
 
-        GC_LOG("[GC] mark env ptr=%p\n", (void *)env);
+        GC_LOG("[GC] mark env ptr=%p buckets=%zu entries=%zu\n",
+               (void *)env,
+               env->bucket_count,
+               env->entry_count);
 
-        for (int i = 0; i < TABLE_SIZE; i++) {
-            const EnvVar *entry = env->buckets[i];
-            while (entry != NULL) {
-                GC_LOG("[GC]   env entry name=%s hash=%u\n",
-                       entry->name ? entry->name : "<null>",
-                       entry->hash);
-                gc_mark_value(&entry->value);
-                entry = entry->next;
+        if (env->buckets != NULL) {
+            for (size_t i = 0; i < env->bucket_count; i++) {
+                const EnvVar *entry = env->buckets[i];
+                while (entry != NULL) {
+                    GC_LOG("[GC]   env entry name=%s hash=%u\n",
+                           entry->name ? entry->name : "<null>",
+                           entry->hash);
+                    gc_mark_value(&entry->value);
+                    entry = entry->next;
+                }
             }
         }
 
@@ -266,14 +271,19 @@ static void gc_sweep(void) {
                 case GC_OBJ_ENV:
                 case GC_OBJ_OBJECT: {
                     const Environment *env = (Environment *)unreached;
-                    for (int i = 0; i < TABLE_SIZE; i++) {
-                        EnvVar *entry = env->buckets[i];
-                        while (entry != NULL) {
-                            EnvVar *temp = entry;
-                            entry = entry->next;
-                            free(temp->name);
-                            free(temp);
+
+                    if (env->buckets != NULL) {
+                        for (size_t i = 0; i < env->bucket_count; i++) {
+                            EnvVar *entry = env->buckets[i];
+                            while (entry != NULL) {
+                                EnvVar *temp = entry;
+                                entry = entry->next;
+                                free(temp->name);
+                                free(temp);
+                            }
                         }
+
+                        free(env->buckets);
                     }
                     break;
                 }

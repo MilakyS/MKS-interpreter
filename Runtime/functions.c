@@ -51,7 +51,7 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
             gc_push_root(&args[i]);
         }
 
-        RuntimeValue result = callable.data.native_func(args, arg_count);
+        const RuntimeValue result = callable.data.native_func(args, arg_count);
 
         for (int i = 0; i < arg_count; i++) {
             gc_pop_root();
@@ -77,17 +77,41 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
             exit(1);
         }
 
+        RuntimeValue args_stack[16];
+        RuntimeValue *args = (arg_count > 16)
+            ? (RuntimeValue *)malloc((size_t)arg_count * sizeof(RuntimeValue))
+            : args_stack;
+
+        if (args == NULL) {
+            gc_pop_root();
+            fprintf(stderr, "[MKS Runtime Error] Out of memory in function call args\n");
+            exit(1);
+        }
+
+        for (int i = 0; i < arg_count; i++) {
+            args[i] = unwrap(eval(node->data.func_call.args[i], env));
+            gc_push_root(&args[i]);
+        }
+
         Environment *local_env = env_create_child(callable.data.func.closure_env);
         gc_push_env(local_env);
 
         for (int i = 0; i < param_count; i++) {
-            RuntimeValue arg_val = unwrap(eval(node->data.func_call.args[i], env));
-            env_set(local_env, decl->data.func_decl.params[i], arg_val);
+            env_set(local_env, decl->data.func_decl.params[i], args[i]);
         }
 
         RuntimeValue result = unwrap(eval(decl->data.func_decl.body, local_env));
 
         gc_pop_env();
+
+        for (int i = 0; i < arg_count; i++) {
+            gc_pop_root();
+        }
+
+        if (arg_count > 16) {
+            free(args);
+        }
+
         gc_pop_root();
         return result;
     }
