@@ -5,9 +5,6 @@
 #include "../Runtime/value.h"
 #include "../env/env.h"
 
-#define TABLE_SIZE 256
-
-
 RuntimeValue eval(const ASTNode *node, Environment *env);
 
 #endif

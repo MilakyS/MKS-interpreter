@@ -3,7 +3,7 @@
 
 #include "../Runtime/value.h"
 
-#define TABLE_SIZE 256
+#define TABLE_SIZE 16
 
 typedef struct EnvVar {
     char *name;
