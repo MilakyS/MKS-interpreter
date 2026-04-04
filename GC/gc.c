@@ -283,7 +283,9 @@ static void gc_sweep(void) {
                             }
                         }
 
-                        free(env->buckets);
+                        if (env->buckets != env->inline_buckets) {
+                            free(env->buckets);
+                        }
                     }
                     break;
                 }

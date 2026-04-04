@@ -21,6 +21,7 @@ typedef struct Environment {
     size_t bucket_count;
     size_t entry_count;
     struct Environment *parent;
+    EnvVar *inline_buckets[ENV_INITIAL_BUCKET_COUNT];
 } Environment;
 
 void env_init(Environment *env);

@@ -315,7 +315,7 @@ static RuntimeValue handle_object_method(
         }
 
         for (int i = 0; i < param_count; i++) {
-            env_set(local_env, decl->data.func_decl.params[i], args[i]);
+            env_set_fast(local_env, decl->data.func_decl.params[i], decl->data.func_decl.param_hashes[i], args[i]);
         }
 
         RuntimeValue result = unwrap(eval(decl->data.func_decl.body, local_env));
