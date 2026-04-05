@@ -52,4 +52,9 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
+# Project specific
+build/
+mks_run
+mks_run_san
+*.mks
 
