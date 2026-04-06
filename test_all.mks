@@ -1,0 +1,8 @@
+Writeln("Program start");
+var x =: 10;
+var arr =: [1, 2, 3];
+fnc double(v) -> return v * 2; <-
+if(x > 5) -> Writeln("x is big"); <-
+for(var i =: 0; i < arr.size(); i =: i + 1) -> Writeln(arr[i]); <-
+Writeln(double(x));
+Writeln("Program end");

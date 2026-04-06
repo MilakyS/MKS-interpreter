@@ -43,6 +43,12 @@
 *.idb
 *.pdb
 
+# Build artifacts
+build/
+mks_run
+mks_run_san
+*.mks
+
 # Kernel Module Compile Results
 *.mod*
 *.cmd

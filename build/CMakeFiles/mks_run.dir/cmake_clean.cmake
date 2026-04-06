@@ -1,0 +1,43 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/mks_run.dir/Eval/eval.c.o"
+  "CMakeFiles/mks_run.dir/Eval/eval.c.o.d"
+  "CMakeFiles/mks_run.dir/GC/gc.c.o"
+  "CMakeFiles/mks_run.dir/GC/gc.c.o.d"
+  "CMakeFiles/mks_run.dir/Lexer/lexer.c.o"
+  "CMakeFiles/mks_run.dir/Lexer/lexer.c.o.d"
+  "CMakeFiles/mks_run.dir/Parser/AST.c.o"
+  "CMakeFiles/mks_run.dir/Parser/AST.c.o.d"
+  "CMakeFiles/mks_run.dir/Parser/parser_core.c.o"
+  "CMakeFiles/mks_run.dir/Parser/parser_core.c.o.d"
+  "CMakeFiles/mks_run.dir/Parser/parser_expr.c.o"
+  "CMakeFiles/mks_run.dir/Parser/parser_expr.c.o.d"
+  "CMakeFiles/mks_run.dir/Parser/parser_stmt.c.o"
+  "CMakeFiles/mks_run.dir/Parser/parser_stmt.c.o.d"
+  "CMakeFiles/mks_run.dir/Runtime/control_flow.c.o"
+  "CMakeFiles/mks_run.dir/Runtime/control_flow.c.o.d"
+  "CMakeFiles/mks_run.dir/Runtime/functions.c.o"
+  "CMakeFiles/mks_run.dir/Runtime/functions.c.o.d"
+  "CMakeFiles/mks_run.dir/Runtime/indexing.c.o"
+  "CMakeFiles/mks_run.dir/Runtime/indexing.c.o.d"
+  "CMakeFiles/mks_run.dir/Runtime/methods.c.o"
+  "CMakeFiles/mks_run.dir/Runtime/methods.c.o.d"
+  "CMakeFiles/mks_run.dir/Runtime/operators.c.o"
+  "CMakeFiles/mks_run.dir/Runtime/operators.c.o.d"
+  "CMakeFiles/mks_run.dir/Runtime/output.c.o"
+  "CMakeFiles/mks_run.dir/Runtime/output.c.o.d"
+  "CMakeFiles/mks_run.dir/Runtime/value.c.o"
+  "CMakeFiles/mks_run.dir/Runtime/value.c.o.d"
+  "CMakeFiles/mks_run.dir/Utils/hash.c.o"
+  "CMakeFiles/mks_run.dir/Utils/hash.c.o.d"
+  "CMakeFiles/mks_run.dir/env/env.c.o"
+  "CMakeFiles/mks_run.dir/env/env.c.o.d"
+  "CMakeFiles/mks_run.dir/main.c.o"
+  "CMakeFiles/mks_run.dir/main.c.o.d"
+  "mks_run"
+  "mks_run.pdb"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang C)
+  include(CMakeFiles/mks_run.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()
