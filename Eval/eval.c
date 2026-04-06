@@ -44,9 +44,8 @@ RuntimeValue eval(const ASTNode *node, Environment *env) {
             for (int i = 0; i < count; i++) {
                 RuntimeValue elem = unwrap_return(eval(node->data.array.items[i], env));
                 arr_val.data.managed_array->elements[i] = elem;
+                arr_val.data.managed_array->count = i + 1; // Protect new elements immediately
             }
-
-            arr_val.data.managed_array->count = count;
 
             gc_pop_root();
             return arr_val;

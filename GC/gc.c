@@ -238,6 +238,8 @@ static void gc_mark_env(Environment *env) {
             }
         }
 
+        // Parent environment might be shared, but it's also a GCObject.
+        // We use the while loop to iteratively mark the chain of environments to avoid deep recursion.
         env = env->parent;
     }
 }

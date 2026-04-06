@@ -245,7 +245,7 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
                 if (r == 0.0) {
                     gc_pop_root();
                     gc_pop_root();
-                    fprintf(stderr, "Runtime Error: division by zero\n");
+                    fprintf(stderr, "\n[MKS Runtime Error] Division by zero at line %d\n", node->line);
                     exit(1);
                 }
                 result = make_int(l / r);
@@ -255,7 +255,7 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
                 if (r == 0.0) {
                     gc_pop_root();
                     gc_pop_root();
-                    fprintf(stderr, "Runtime Error: modulo by zero\n");
+                    fprintf(stderr, "\n[MKS Runtime Error] Modulo by zero at line %d\n", node->line);
                     exit(1);
                 }
                 result = make_int(fmod(l, r));

@@ -63,18 +63,11 @@ static struct Token Read_Number(struct Lexer *lexer) {
 
     const int length = (int)((lexer->source + lexer->position) - start);
 
-    char *temp_buf = malloc((size_t)length + 1);
-    if (!temp_buf) {
-        return make_error_token(start, length, line);
-    }
-
-    memcpy(temp_buf, start, (size_t)length);
-    temp_buf[length] = '\0';
-
     struct Token token = make_token(TOKEN_TYPE_NUMBER, start, length, line);
-    token.double_value = strtod(temp_buf, NULL);
 
-    free(temp_buf);
+    char *endptr;
+    token.double_value = strtod(start, &endptr);
+
     return token;
 }
 

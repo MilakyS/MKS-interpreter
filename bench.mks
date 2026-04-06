@@ -1,0 +1,8 @@
+fnc fib(n) ->
+    if (n < 2) ->
+        return n;
+    <-
+    return fib(n - 1) + fib(n - 2);
+<-
+
+Writeln("Fibonacci(28) result: ", fib(28));

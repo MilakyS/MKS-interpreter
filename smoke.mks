@@ -1,0 +1,19 @@
+Writeln("Smoke test starting...");
+
+var a =: [1, 2, 3];
+Writeln("Array: ", a);
+
+fnc add(x, y) ->
+    return x + y;
+<-
+
+Writeln("Add: ", add(10, 20));
+
+var s =: "Hello " + "World";
+Writeln("String: ", s);
+
+if (10 > 5) ->
+    Writeln("Logic works");
+<-
+
+Writeln("Smoke test complete.");
