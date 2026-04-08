@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include "../Runtime/value.h"
 #include "../GC/gc.h"
@@ -33,6 +34,7 @@ static EnvVar **env_alloc_buckets(size_t bucket_count) {
 }
 
 static void env_resize(Environment *env, size_t new_bucket_count) {
+    assert((new_bucket_count & (new_bucket_count - 1)) == 0 && "bucket_count must be a power of two");
     EnvVar **new_buckets = env_alloc_buckets(new_bucket_count);
 
     for (size_t i = 0; i < env->bucket_count; i++) {
@@ -40,7 +42,7 @@ static void env_resize(Environment *env, size_t new_bucket_count) {
         while (entry != NULL) {
             EnvVar *next = entry->next;
 
-            const size_t new_index = entry->hash % new_bucket_count;
+            const size_t new_index = entry->hash & (new_bucket_count - 1);
             entry->next = new_buckets[new_index];
             new_buckets[new_index] = entry;
 
@@ -98,7 +100,8 @@ void env_set_fast(Environment *env, const char *name, unsigned int h, RuntimeVal
         env->buckets = env_alloc_buckets(env->bucket_count);
     }
 
-    const size_t index = h % env->bucket_count;
+    assert((env->bucket_count & (env->bucket_count - 1)) == 0 && "bucket_count must be a power of two");
+    const size_t index = h & (env->bucket_count - 1);
 
     EnvVar *current = env->buckets[index];
     while (current != NULL) {
@@ -111,7 +114,8 @@ void env_set_fast(Environment *env, const char *name, unsigned int h, RuntimeVal
 
     env_maybe_grow(env);
 
-    const size_t final_index = h % env->bucket_count;
+    assert((env->bucket_count & (env->bucket_count - 1)) == 0 && "bucket_count must be a power of two");
+    const size_t final_index = h & (env->bucket_count - 1);
 
     EnvVar *new_var = (EnvVar *)malloc(sizeof(EnvVar));
     if (new_var == NULL) {
@@ -137,7 +141,8 @@ RuntimeValue env_get_fast(const Environment *env, const char *name, unsigned int
 
     while (cur_env != NULL) {
         if (cur_env->bucket_count > 0 && cur_env->buckets != NULL) {
-            const size_t index = h % cur_env->bucket_count;
+            assert((cur_env->bucket_count & (cur_env->bucket_count - 1)) == 0 && "bucket_count must be a power of two");
+            const size_t index = h & (cur_env->bucket_count - 1);
             const EnvVar *current = cur_env->buckets[index];
 
             while (current != NULL) {
@@ -164,7 +169,8 @@ void env_update_fast(Environment *env, const char *name, unsigned int h, Runtime
 
     while (cur_env != NULL) {
         if (cur_env->bucket_count > 0 && cur_env->buckets != NULL) {
-            const size_t index = h % cur_env->bucket_count;
+            assert((cur_env->bucket_count & (cur_env->bucket_count - 1)) == 0 && "bucket_count must be a power of two");
+            const size_t index = h & (cur_env->bucket_count - 1);
             EnvVar *current = cur_env->buckets[index];
 
             while (current != NULL) {
