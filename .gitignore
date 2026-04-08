@@ -40,6 +40,12 @@
 # Debug files
 *.dSYM/
 *.su
+
+# Project specific
+build/
+mks_run
+mks_run_san
+*.mks
 *.idb
 *.pdb
 
