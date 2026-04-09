@@ -3,6 +3,9 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "../env/env.h"
+#include "../Parser/AST.h"
+
 static char *mks_strdup(const char *src) {
     if (src == NULL) {
         src = "";
@@ -31,6 +34,14 @@ RuntimeValue make_int(const double val) {
     v.type = VAL_INT;
     v.original_type = VAL_INT;
     v.data.float_value = val;
+    return v;
+}
+
+RuntimeValue make_object(Environment *env) {
+    RuntimeValue v;
+    v.type = VAL_OBJECT;
+    v.original_type = VAL_OBJECT;
+    v.data.obj_env = env;
     return v;
 }
 
@@ -175,6 +186,31 @@ RuntimeValue make_null(void) {
     RuntimeValue v;
     v.type = VAL_NULL;
     v.original_type = VAL_NULL;
+    v.data.float_value = 0;
+    return v;
+}
+
+RuntimeValue make_blueprint(const ASTNode *entity_node, Environment *closure_env) {
+    RuntimeValue v;
+    v.type = VAL_BLUEPRINT;
+    v.original_type = VAL_BLUEPRINT;
+    v.data.blueprint.entity_node = entity_node;
+    v.data.blueprint.closure_env = closure_env;
+    return v;
+}
+
+RuntimeValue make_break(void) {
+    RuntimeValue v;
+    v.type = VAL_BREAK;
+    v.original_type = VAL_BREAK;
+    v.data.float_value = 0;
+    return v;
+}
+
+RuntimeValue make_continue(void) {
+    RuntimeValue v;
+    v.type = VAL_CONTINUE;
+    v.original_type = VAL_CONTINUE;
     v.data.float_value = 0;
     return v;
 }

@@ -1,0 +1,6 @@
+using "std/math";
+
+Writeln("abs(-5) = " + abs(-5));
+Writeln("square(4) = " + square(4));
+Writeln("min(10, 3) = " + min(10, 3));
+Writeln("max(10, 3) = " + max(10, 3));

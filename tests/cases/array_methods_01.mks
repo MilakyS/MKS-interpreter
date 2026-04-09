@@ -1,0 +1,6 @@
+var arr =: [1, 2, 3];
+Writeln(arr.offset(1));
+arr.exclude(1);
+Writeln(arr);
+arr.purge();
+Writeln(arr);

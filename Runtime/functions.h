@@ -9,5 +9,6 @@ RuntimeValue eval_func_decl(const ASTNode *node, Environment *env);
 
 
 RuntimeValue eval_func_call(const ASTNode *node, Environment *env);
+RuntimeValue eval_blueprint_construct(RuntimeValue blueprint, RuntimeValue *args, int arg_count, Environment *env);
 
 #endif //MONKEYKERNELSYNTAX_FUNCTIONS_H

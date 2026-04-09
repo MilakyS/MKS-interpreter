@@ -1,0 +1,7 @@
+var x =: 10;
+
+if(x > 5) ->
+    Writeln("big");
+<- else ->
+    Writeln("small");
+<-

@@ -1,0 +1,23 @@
+var x =: 0;
+
+while (x < 6) ->
+    x =: x + 1;
+
+    if (x ?= 2) ->
+        continue;
+    <-
+
+    if (x ?= 4) ->
+        break;
+    <-
+
+    Writeln(x);
+<-
+
+repeat 3 ->
+    Writeln("r");
+<-
+
+repeat i in 3 ->
+    Writeln(i);
+<-

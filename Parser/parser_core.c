@@ -58,12 +58,19 @@ static void parser_vpanic(Parser *parser, const char *prefix, const char *messag
                 safe_prefix,
                 parser->current_token.line,
                 safe_message);
+        const char *hint = lexer_last_error_hint();
+        if (hint != NULL) {
+            fprintf(stderr, "Hint: %s\n", hint);
+        } else {
+            fprintf(stderr, "Hint: check syntax — missing ';', closing '<-' block, or a keyword typo.\n");
+        }
     } else {
         fprintf(stderr,
                 "\n\033[1;31m[%s]\033[0m\n"
                 "Line ?: %s\n",
                 safe_prefix,
                 safe_message);
+        fprintf(stderr, "Hint: check overall file/block structure\n");
     }
 
     exit(1);

@@ -1,0 +1,5 @@
+var arr =: [];
+Writeln(arr.len());
+arr.inject(10);
+Writeln(arr[0]);
+Writeln(arr.len());

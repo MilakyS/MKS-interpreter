@@ -1,0 +1,17 @@
+entity Buba(name, power) ->
+    init ->
+        self.name =: name;
+        self.power =: power;
+    <-
+    method hello() ->
+        Writeln("Hello, I am ", self.name, " with power ", self.power);
+    <-
+    method boost(amount) ->
+        self.power =: self.power + amount;
+    <-
+<-
+
+var b =: Buba("buba", 12);
+b.hello();
+b.boost(5);
+Writeln(b.power);

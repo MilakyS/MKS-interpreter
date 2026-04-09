@@ -1,0 +1,6 @@
+using "std/math";
+Writeln(abs(-5));
+Writeln(abs(0));
+Writeln(square(4));
+Writeln(min(10, 3));
+Writeln(max(10, 3));

@@ -1,0 +1,59 @@
+fnc push(arr, v) -> arr.inject(v); return arr; <-
+fnc pop(arr) -> return arr.eject(); <-
+fnc first(arr) -> if (arr.len() ?= 0) -> return null; <- return arr[0]; <-
+fnc last(arr) -> if (arr.len() ?= 0) -> return null; <- return arr[arr.len() - 1]; <-
+fnc slice(arr, start, count) ->
+    var out =: [];
+    var i =: 0;
+    while (i < count && (start + i) < arr.len()) ->
+        out.inject(arr[start + i]);
+        i =: i + 1;
+    <-
+    return out;
+<-
+fnc reverse(arr) ->
+    var out =: [];
+    var i =: arr.len() - 1;
+    while (i >= 0) ->
+        out.inject(arr[i]);
+        i =: i - 1;
+    <-
+    return out;
+<-
+fnc map(arr, fnc) ->
+    var out =: [];
+    var i =: 0;
+    while (i < arr.len()) ->
+        out.inject(fnc(arr[i]));
+        i =: i + 1;
+    <-
+    return out;
+<-
+fnc filter(arr, fnc) ->
+    var out =: [];
+    var i =: 0;
+    while (i < arr.len()) ->
+        var keep =: fnc(arr[i]);
+        if (keep ?= 0) -> i =: i + 1; <-
+        out.inject(arr[i]);
+        i =: i + 1;
+    <-
+    return out;
+<-
+fnc reduce(arr, fnc, acc) ->
+    var i =: 0;
+    while (i < arr.len()) ->
+        acc =: fnc(acc, arr[i]);
+        i =: i + 1;
+    <-
+    return acc;
+<-
+fnc sum(arr) ->
+    var s =: 0; var i =: 0;
+    while (i < arr.len()) -> s =: s + arr[i]; i =: i + 1; <-
+    return s;
+<-
+fnc avg(arr) ->
+    if (arr.len() ?= 0) -> return 0; <-
+    return sum(arr) / arr.len();
+<-

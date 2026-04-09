@@ -8,10 +8,11 @@
 
 GarbageCollector mks_gc;
 
-static void gc_mark_value(const RuntimeValue *val);
-static void gc_mark_env(Environment *env);
-static void gc_mark_object(GCObject *obj);
-static void gc_sweep(void);
+typedef struct {
+    GCObject **items;
+    size_t count;
+    size_t capacity;
+} GCMarkStack;
 
 #define GC_LOG(...)                         \
     do {                                   \
@@ -29,6 +30,181 @@ static const char *gc_type_name(const GCObjectType type) {
         default:            return "UNKNOWN";
     }
 }
+
+
+static void gc_mark_stack_init(GCMarkStack *stack) {
+    stack->items = NULL;
+    stack->count = 0;
+    stack->capacity = 0;
+}
+
+static void gc_mark_stack_free(GCMarkStack *stack) {
+    free(stack->items);
+    stack->items = NULL;
+    stack->count = 0;
+    stack->capacity = 0;
+}
+
+static void gc_mark_stack_push(GCMarkStack *stack, GCObject *obj) {
+    if (obj == NULL) {
+        return;
+    }
+
+    if (stack->count >= stack->capacity) {
+        size_t new_capacity = (stack->capacity == 0) ? 256 : stack->capacity * 2;
+        GCObject **new_items =
+            (GCObject **)realloc(stack->items, sizeof(GCObject *) * new_capacity);
+
+        if (new_items == NULL) {
+            fprintf(stderr, "[MKS GC] Fatal: Out of memory growing mark stack\n");
+            exit(1);
+        }
+
+        stack->items = new_items;
+        stack->capacity = new_capacity;
+    }
+
+    stack->items[stack->count++] = obj;
+}
+
+static GCObject *gc_mark_stack_pop(GCMarkStack *stack) {
+    if (stack->count == 0) {
+        return NULL;
+    }
+
+    return stack->items[--stack->count];
+}
+
+static void gc_mark_object_push(GCMarkStack *stack, GCObject *obj) {
+    if (obj == NULL || obj->marked) {
+        return;
+    }
+
+    obj->marked = true;
+
+    GC_LOG("[GC] mark+push ptr=%p type=%s size=%zu\n",
+           (void *)obj,
+           gc_type_name(obj->type),
+           obj->size);
+
+    gc_mark_stack_push(stack, obj);
+}
+
+static void gc_mark_value_push(GCMarkStack *stack, const RuntimeValue *val) {
+    if (val == NULL) {
+        return;
+    }
+
+    GC_LOG("[GC] mark value type=%d\n", val->type);
+
+    switch (val->type) {
+        case VAL_STRING:
+            gc_mark_object_push(stack, (GCObject *)val->data.managed_string);
+            break;
+
+        case VAL_ARRAY:
+            gc_mark_object_push(stack, (GCObject *)val->data.managed_array);
+            break;
+
+        case VAL_OBJECT:
+            gc_mark_object_push(stack, (GCObject *)val->data.obj_env);
+            break;
+
+        case VAL_FUNC:
+            gc_mark_object_push(stack, (GCObject *)val->data.func.closure_env);
+            break;
+
+        case VAL_BLUEPRINT:
+            gc_mark_object_push(stack, (GCObject *)val->data.blueprint.closure_env);
+            break;
+
+        case VAL_RETURN: {
+            RuntimeValue tmp = *val;
+            tmp.type = tmp.original_type;
+            gc_mark_value_push(stack, &tmp);
+            break;
+        }
+
+        default:
+            break;
+    }
+}
+
+static void gc_mark_all_iterative(Environment *global_env, Environment *current_env) {
+    GCMarkStack stack;
+    gc_mark_stack_init(&stack);
+
+    if (global_env != NULL) {
+        gc_mark_object_push(&stack, (GCObject *)global_env);
+    }
+
+    if (current_env != NULL && current_env != global_env) {
+        gc_mark_object_push(&stack, (GCObject *)current_env);
+    }
+
+    for (int i = 0; i < mks_gc.roots_count; i++) {
+        GC_LOG("[GC] root temp[%d]=%p\n", i, (void *)mks_gc.roots[i]);
+        gc_mark_value_push(&stack, mks_gc.roots[i]);
+    }
+
+    for (int i = 0; i < mks_gc.env_roots_count; i++) {
+        GC_LOG("[GC] root env_stack[%d]=%p\n", i, (void *)mks_gc.env_roots[i]);
+        gc_mark_object_push(&stack, (GCObject *)mks_gc.env_roots[i]);
+    }
+
+    while (stack.count > 0) {
+        GCObject *obj = gc_mark_stack_pop(&stack);
+        if (obj == NULL) {
+            continue;
+        }
+
+        switch (obj->type) {
+            case GC_OBJ_ARRAY: {
+                ManagedArray *arr = (ManagedArray *)obj;
+                for (int i = 0; i < arr->count; i++) {
+                    gc_mark_value_push(&stack, &arr->elements[i]);
+                }
+                break;
+            }
+
+            case GC_OBJ_ENV:
+            case GC_OBJ_OBJECT: {
+                Environment *env = (Environment *)obj;
+
+                GC_LOG("[GC] scan env ptr=%p buckets=%zu entries=%zu\n",
+                       (void *)env,
+                       env->bucket_count,
+                       env->entry_count);
+
+                if (env->buckets != NULL) {
+                    for (size_t i = 0; i < env->bucket_count; i++) {
+                        EnvVar *entry = env->buckets[i];
+                        while (entry != NULL) {
+                            GC_LOG("[GC]   env entry name=%s hash=%u\n",
+                                   entry->name ? entry->name : "<null>",
+                                   entry->hash);
+                            gc_mark_value_push(&stack, &entry->value);
+                            entry = entry->next;
+                        }
+                    }
+                }
+
+                if (env->parent != NULL) {
+                    gc_mark_object_push(&stack, (GCObject *)env->parent);
+                }
+
+                break;
+            }
+
+            case GC_OBJ_STRING:
+            default:
+                break;
+        }
+    }
+
+    gc_mark_stack_free(&stack);
+}
+
 
 void gc_set_debug(const int enabled) {
     mks_gc.debug_enabled = enabled;
@@ -141,107 +317,6 @@ void *gc_alloc(const size_t size, const GCObjectType type) {
     return obj;
 }
 
-static void gc_mark_object(GCObject *obj) {
-    if (obj == NULL) {
-        return;
-    }
-
-    if (obj->type == GC_OBJ_ENV || obj->type == GC_OBJ_OBJECT) {
-        gc_mark_env((Environment *)obj);
-        return;
-    }
-
-    if (obj->marked) {
-        return;
-    }
-
-    obj->marked = true;
-
-    GC_LOG("[GC] mark object ptr=%p type=%s size=%zu\n",
-           (void *)obj, gc_type_name(obj->type), obj->size);
-
-    switch (obj->type) {
-        case GC_OBJ_ARRAY: {
-            const ManagedArray *arr = (ManagedArray *)obj;
-            for (int i = 0; i < arr->count; i++) {
-                gc_mark_value(&arr->elements[i]);
-            }
-            break;
-        }
-
-        case GC_OBJ_STRING:
-        default:
-            break;
-    }
-}
-
-static void gc_mark_value(const RuntimeValue *val) {
-    if (val == NULL) {
-        return;
-    }
-
-    GC_LOG("[GC] mark value type=%d\n", val->type);
-
-    switch (val->type) {
-        case VAL_STRING:
-            gc_mark_object((GCObject *)val->data.managed_string);
-            break;
-
-        case VAL_ARRAY:
-            gc_mark_object((GCObject *)val->data.managed_array);
-            break;
-
-        case VAL_OBJECT:
-            gc_mark_object((GCObject *)val->data.obj_env);
-            break;
-
-        case VAL_FUNC:
-            gc_mark_env(val->data.func.closure_env);
-            break;
-
-        case VAL_RETURN: {
-            RuntimeValue unwrapped = *val;
-            unwrapped.type = unwrapped.original_type;
-            gc_mark_value(&unwrapped);
-            break;
-        }
-
-        default:
-            break;
-    }
-}
-
-static void gc_mark_env(Environment *env) {
-    while (env != NULL) {
-        GCObject *obj = (GCObject *)env;
-        if (obj->marked) {
-            return;
-        }
-
-        obj->marked = true;
-
-        GC_LOG("[GC] mark env ptr=%p buckets=%zu entries=%zu\n",
-               (void *)env,
-               env->bucket_count,
-               env->entry_count);
-
-        if (env->buckets != NULL) {
-            for (size_t i = 0; i < env->bucket_count; i++) {
-                const EnvVar *entry = env->buckets[i];
-                while (entry != NULL) {
-                    GC_LOG("[GC]   env entry name=%s hash=%u\n",
-                           entry->name ? entry->name : "<null>",
-                           entry->hash);
-                    gc_mark_value(&entry->value);
-                    entry = entry->next;
-                }
-            }
-        }
-
-        env = env->parent;
-    }
-}
-
 static void gc_sweep(void) {
     GCObject **ptr = &mks_gc.head;
 
@@ -270,7 +345,7 @@ static void gc_sweep(void) {
 
                 case GC_OBJ_ENV:
                 case GC_OBJ_OBJECT: {
-                    const Environment *env = (Environment *)unreached;
+                    Environment *env = (Environment *)unreached;
 
                     if (env->buckets != NULL) {
                         for (size_t i = 0; i < env->bucket_count; i++) {
@@ -323,26 +398,7 @@ void gc_collect(Environment *global_env, Environment *current_env) {
            mks_gc.roots_count,
            mks_gc.env_roots_count);
 
-    if (global_env != NULL) {
-        GC_LOG("[GC] root global_env=%p\n", (void *)global_env);
-        gc_mark_env(global_env);
-    }
-
-    if (current_env != NULL && current_env != global_env) {
-        GC_LOG("[GC] root current_env=%p\n", (void *)current_env);
-        gc_mark_env(current_env);
-    }
-
-    for (int i = 0; i < mks_gc.roots_count; i++) {
-        GC_LOG("[GC] root temp[%d]=%p\n", i, (void *)mks_gc.roots[i]);
-        gc_mark_value(mks_gc.roots[i]);
-    }
-
-    for (int i = 0; i < mks_gc.env_roots_count; i++) {
-        GC_LOG("[GC] root env_stack[%d]=%p\n", i, (void *)mks_gc.env_roots[i]);
-        gc_mark_env(mks_gc.env_roots[i]);
-    }
-
+    gc_mark_all_iterative(global_env, current_env);
     gc_sweep();
 
     const size_t freed_now_objects = mks_gc.freed_objects - freed_objects_before;

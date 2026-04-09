@@ -7,6 +7,7 @@
 #include "../Eval/eval.h"
 #include "../Lexer/lexer.h"
 #include "../GC/gc.h"
+#include "errors.h"
 
 #define MKS_NUM_BUF_SIZE 128
 
@@ -86,12 +87,10 @@ static const char *token_name(const int op) {
 static void runtime_type_error_binop(const int op,
                                      const RuntimeValue left,
                                      const RuntimeValue right) {
-    fprintf(stderr,
-            "Runtime Error: unsupported operand types for '%s': %s and %s\n",
-            token_name(op),
-            value_type_name(left),
-            value_type_name(right));
-    exit(1);
+    runtime_error("unsupported operand types for '%s': %s and %s",
+                  token_name(op),
+                  value_type_name(left),
+                  value_type_name(right));
 }
 
 static const char *value_to_cstr(const RuntimeValue v, char *buf, const size_t buf_size) {

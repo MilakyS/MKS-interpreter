@@ -1,5 +1,6 @@
 #include "parser.h"
 #include <stdlib.h>
+#include <stdbool.h>
 
 static ASTNode* parser_parse_assignment(Parser *parser);
 static ASTNode* parser_parse_logical_or(Parser *parser);
@@ -8,6 +9,7 @@ static ASTNode* parser_parse_comparison(Parser *parser);
 static ASTNode* parser_parse_equality(Parser *parser);
 static ASTNode* parser_parse_math(Parser *parser);
 static ASTNode* parser_parse_term(Parser *parser);
+static ASTNode* parser_parse_unary(Parser *parser);
 static ASTNode* parser_parse_primary(Parser *parser);
 static ASTNode* parser_parse_postfix(Parser *parser, ASTNode *node);
 
@@ -18,11 +20,16 @@ ASTNode* parser_parse_expression(Parser *parser) {
 static ASTNode* parser_parse_assignment(Parser *parser) {
     ASTNode *node = parser_parse_logical_or(parser);
 
-    if (parser->current_token.type == TOKEN_ASSIGN) {
+    if (parser->current_token.type == TOKEN_ASSIGN || parser->current_token.type == TOKEN_SWAP) {
         const int line = parser->current_token.line;
-        parser_eat(parser, TOKEN_ASSIGN);
+        int is_swap = (parser->current_token.type == TOKEN_SWAP);
+        parser_eat(parser, parser->current_token.type);
 
         ASTNode *rhs = parser_parse_assignment(parser);
+
+        if (is_swap) {
+            return create_ast_swap(node, rhs, line);
+        }
 
         if (node->type == AST_IDENTIFIER) {
             ASTNode *assign_node = create_ast_assign(
@@ -36,7 +43,19 @@ static ASTNode* parser_parse_assignment(Parser *parser) {
             return assign_node;
         }
 
-        return create_ast_index_assign(node, rhs, line);
+        if (node->type == AST_INDEX) {
+            return create_ast_index_assign(node, rhs, line);
+        }
+
+        if (node->type == AST_OBJ_GET) {
+            return create_ast_obj_set(node->data.obj_get.object,
+                                      node->data.obj_get.field,
+                                      node->data.obj_get.field_hash,
+                                      rhs,
+                                      line);
+        }
+
+        parser_error(parser, "Invalid assignment target");
     }
 
     return node;
@@ -116,7 +135,7 @@ static ASTNode* parser_parse_math(Parser *parser) {
 }
 
 static ASTNode* parser_parse_term(Parser *parser) {
-    ASTNode *node = parser_parse_primary(parser);
+    ASTNode *node = parser_parse_unary(parser);
 
     while (parser->current_token.type == TOKEN_STAR ||
            parser->current_token.type == TOKEN_SLASH ||
@@ -125,10 +144,27 @@ static ASTNode* parser_parse_term(Parser *parser) {
         const int op = parser->current_token.type;
         const int line = parser->current_token.line;
         parser_eat(parser, op);
-        node = create_ast_binop(node, parser_parse_primary(parser), op, line);
+        node = create_ast_binop(node, parser_parse_unary(parser), op, line);
     }
 
     return node;
+}
+
+static ASTNode* parser_parse_unary(Parser *parser) {
+    if (parser->current_token.type == TOKEN_MINUS) {
+        const int line = parser->current_token.line;
+        parser_eat(parser, TOKEN_MINUS);
+        ASTNode *right = parser_parse_unary(parser);
+        ASTNode *zero = create_ast_num(0, line);
+        return create_ast_binop(zero, right, TOKEN_MINUS, line);
+    }
+
+    if (parser->current_token.type == TOKEN_PLUS) {
+        parser_eat(parser, TOKEN_PLUS);
+        return parser_parse_unary(parser);
+    }
+
+    return parser_parse_primary(parser);
 }
 
 static ASTNode* parser_parse_primary(Parser *parser) {
@@ -233,7 +269,9 @@ static ASTNode* parser_parse_postfix(Parser *parser, ASTNode *node) {
             int arg_count = 0;
             int arg_cap = 0;
 
+            bool had_parens = false;
             if (parser->current_token.type == TOKEN_LPAREL) {
+                had_parens = true;
                 parser_eat(parser, TOKEN_LPAREL);
 
                 if (parser->current_token.type != TOKEN_RPAREL) {
@@ -246,7 +284,11 @@ static ASTNode* parser_parse_postfix(Parser *parser, ASTNode *node) {
                 parser_eat(parser, TOKEN_RPAREL);
             }
 
-            node = create_ast_method_call(node, method_name, method_hash, args, arg_count, line);
+            if (had_parens) {
+                node = create_ast_method_call(node, method_name, method_hash, args, arg_count, line);
+            } else {
+                node = create_ast_obj_get(node, method_name, method_hash, line);
+            }
         }
     }
 

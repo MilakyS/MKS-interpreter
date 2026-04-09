@@ -1,0 +1,6 @@
+Writeln(1 ?= 1);
+Writeln(1 !? 2);
+Writeln(5 > 3);
+Writeln(2 < 1);
+Writeln(3 >= 3);
+Writeln(2 <= 5);

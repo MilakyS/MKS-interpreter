@@ -1,0 +1,4 @@
+Writeln(1 && 1);
+Writeln(1 && 0);
+Writeln(0 || 1);
+Writeln(0 || 0);

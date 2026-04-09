@@ -1,0 +1,22 @@
+extend array ->
+    method sum() ->
+        var total =: 0;
+        var i =: 0;
+        while (i < self.len()) ->
+            total =: total + self[i];
+            i =: i + 1;
+        <-
+        return total;
+    <-
+
+    method last() ->
+        if (self.len() ?= 0) ->
+            return null;
+        <-
+        return self[self.len() - 1];
+    <-
+<-
+
+var nums =: [1, 2, 3];
+Writeln(nums.sum());
+Writeln(nums.last());

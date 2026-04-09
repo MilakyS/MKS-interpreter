@@ -1,0 +1,5 @@
+var arr =: [1, 2, 3];
+Writeln(arr[0]);
+arr[1] =: 99;
+Writeln(arr[1]);
+Writeln(arr.len());

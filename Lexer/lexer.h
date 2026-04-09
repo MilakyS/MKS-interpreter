@@ -47,6 +47,19 @@ enum TokenType {
     TOKEN_KW_RETURN,
     TOKEN_KW_FOR,
     TOKEN_KW_USING,
+    TOKEN_SWAP,
+    TOKEN_KW_ENTITY,
+    TOKEN_KW_METHOD,
+    TOKEN_KW_INIT,
+    TOKEN_KW_EXTEND,
+    TOKEN_KW_DEFER,
+    TOKEN_KW_WATCH,
+    TOKEN_KW_ON,
+    TOKEN_KW_CHANGE,
+    TOKEN_KW_BREAK,
+    TOKEN_KW_CONTINUE,
+    TOKEN_KW_REPEAT,
+    TOKEN_KW_IN,
 };
 
 struct Lexer {
@@ -71,5 +84,7 @@ struct Token {
 
 void Token_init(struct Lexer *lexer, const char *source);
 struct Token lexer_next(struct Lexer *lexer);
+const char *lexer_last_error_hint(void);
+void lexer_set_error_hint(const char *msg);
 
 #endif

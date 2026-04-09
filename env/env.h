@@ -32,5 +32,8 @@ void env_set_fast(Environment *env, const char *name, unsigned int h, RuntimeVal
 
 RuntimeValue env_get_fast(const Environment *env, const char *name, unsigned int h);
 void env_update_fast(Environment *env, const char *name, unsigned int h, RuntimeValue value);
+bool env_try_get(const Environment *env, const char *name, unsigned int h, RuntimeValue *out);
+/* Returns pointer to EnvVar if found, else NULL (no allocation). */
+struct EnvVar *env_get_entry(const Environment *env, const char *name, unsigned int h);
 
 #endif

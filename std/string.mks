@@ -1,0 +1,10 @@
+fnc len(s) -> return s.len(); <-
+fnc lower(s) -> return s.lower(); <-
+fnc upper(s) -> return s.upper(); <-
+fnc trim(s) -> return s.trim(); <-
+fnc contains(s, sub) -> return s.contains(sub); <-
+fnc starts_with(s, pre) -> return s.starts_with(pre); <-
+fnc ends_with(s, suf) -> return s.ends_with(suf); <-
+fnc replace(s, old, new) -> return s.replace(old, new); <-
+fnc split(s, delim) -> return s.split(delim); <-
+fnc join(arr, delim) -> return arr.join(delim); <-

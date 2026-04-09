@@ -10,4 +10,6 @@
 
 RuntimeValue eval(const ASTNode *node, Environment *env);
 
+RuntimeValue eval_repeat(const ASTNode *node, Environment *env);
+
 #endif

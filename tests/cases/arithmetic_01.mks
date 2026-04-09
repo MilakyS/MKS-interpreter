@@ -1,0 +1,5 @@
+Writeln(1 + 2);
+Writeln(10 - 3);
+Writeln(4 * 5);
+Writeln(20 / 4);
+Writeln(10 % 3);

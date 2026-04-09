@@ -1,144 +1,148 @@
-# 🐒 MKS Interpreter
+# 🐒 MKS 
+Small experimental scripting language + interpreter in C.
 
-**MKS** is a small experimental scripting language and interpreter written in C.
+## Contents
+- [Feature overview](#feature-overview)
+- [Hello, MKS](#hello-mks)
+- [Language tour](#language-tour)
+- [Entities & extend](#entities--extend)
+- [Imports & stdlib](#imports--stdlib)
+- [Watch / defer](#watch--defer)
+- [CLI](#cli)
+- [Repo layout](#repo-layout)
+- [Docs](#docs)
 
-> This is a learning / hobby project — not production-ready.
+## Feature overview
+- Expressions: numbers, strings, arrays, indexing.
+- Control flow: `if/else`, `while`, `for`, `repeat`, `break`, `continue`.
+- Functions & recursion: `fnc name(args) -> ... <-`, `return`.
+- Swap operator: `a <--> b;` (fast in-place).
+- Defer & watch/on change.
+- Entities (lightweight objects) + methods; extend built-ins (array/string).
+- Imports with built-in std path (`std/math`).
+- Friendly errors with hints; recursion-depth guard.
+- Simple mark/sweep GC; sanitizer-friendly build.
 
----
-
-## ✨ Overview
-
-MKS is a simple interpreted language built to explore:
-
-- parsing and AST design  
-- runtime systems in C  
-- basic garbage collection  
-- language syntax experimentation  
-
-The syntax is intentionally a bit unconventional (`->`, `<-`, `=:`), just to try different ideas.
-
----
-
-## ⚠️ Disclaimer
-
-This project is **not stable**. You will likely encounter:
-
-- bugs  
-- inconsistent behavior  
-- unfinished features  
-- questionable design choices  
-- possible memory leaks  
-
-If something behaves oddly — that's part of the process 🙂
-
----
-
-## 🚀 Features (current state)
-
-- ✅ Numbers  
-- ✅ Strings  
-- ✅ Arrays  
-- ✅ Arithmetic & comparison  
-- ✅ Logical operations  
-- ✅ `if / else`  
-- ✅ `while`, `for`  
-- ✅ Functions & recursion  
-- ✅ Return values  
-- ✅ String methods  
-- ✅ Array methods  
-- ✅ Indexing (`arr[i]`, `str[i]`)  
-- ⚠️ Basic GC (works, but still evolving)
-
----
-
-Example
-
-```
-Writeln("Program start");
+## Hello, MKS
+```mks
+using "std/math";
 
 var x =: 10;
-var arr =: [1, 2, 3];
+watch x;
+on change x -> Writeln("x changed"); <-
 
-fnc double(v) ->
-    return v * 2;
-<-
-
-if(x > 5) ->
-    Writeln("x is big");
-<-
-
-for(var i =: 0; i < arr.size(); i =: i + 1) ->
-    Writeln(arr[i]);
-<-
-
-Writeln(double(x));
-Writeln("Program end");
+x =: square(x);     // triggers watcher
+Writeln("result:", x);
 ```
 
-🧠 Syntax Quick Look
-Variables
-var x =: 10;
-x =: 20;
+
+## Language tour
+Variables & swap
+```mks
+var a =: 1;
+var b =: 2;
+a <--> b;          // swap
+```
+
+Control flow
+```mks
+if (a > 0) -> Writeln("positive"); <-
+while (a < 5) -> a =: a + 1; <-
+for (var i =: 0; i < 3; i =: i + 1) -> Writeln(i); <-
+repeat 3 -> Writeln("ping"); <-
+repeat i in 3 -> Writeln(i); <-
+```
+
 Functions
+```mks
 fnc add(a, b) ->
     return a + b;
 <-
-Conditionals
-if(x > 0) ->
-    Writeln("positive");
-<- else ->
-    Writeln("not positive");
-<-
-Loops
-while(i < 10) ->
-    i =: i + 1;
-<-
-
-for(var i =: 0; i < 10; i =: i + 1) ->
-    Writeln(i);
-<-
-🛠️ Build
-Requirements
-CMake ≥ 3.10
-GCC or Clang
-Build (Release)
-cmake -B build
-cmake --build build
-Run
-./build/mks_run your_file.mks
-🧪 Debug (Sanitizers)
-
-Recommended during development:
+Writeln(add(2, 3));
 ```
-rm -rf build
-cmake -B build -DENABLE_ASAN=ON
-cmake --build build
+
+Tests
+```mks
+test "math add" ->
+    expect(1 + 1 ?= 2);
+<-
 ```
-Run with leak detection:
 
-``` ASAN_OPTIONS=detect_leaks=1 ./build/mks_run your_file.mks ```
-🧩 Project Structure
-Lexer/        → tokenization
-Parser/       → AST + parsing logic
-Eval/         → AST evaluation
-Runtime/      → values, operators, functions
-env/          → variable scope / environment
-GC/           → garbage collector
-Utils/        → helper utilities
-🐛 Things Worth Testing
-division / modulo by zero
-out-of-bounds access
-undefined variables
-wrong argument counts
-deep recursion
-nested arrays / functions
-operations on empty structures
-🧭 Project Status
+## Entities & extend
+```mks
+entity User(name) ->
+    init -> self.name =: name; <-
+    method hi() -> Writeln("Hi ", self.name); <-
+<-
 
-Active and evolving.
+var u =: User("Ann");
+u.hi();
 
-Expect changes in:
+extend array ->
+    method sum() ->
+        var s =: 0; var i =: 0;
+        while (i < self.len()) -> s =: s + self[i]; i =: i + 1; <-
+        return s;
+    <-
+<-
 
-syntax
-runtime behavior
-internal architecture
+Writeln([1,2,3].sum()); // 6
+```
+
+## Imports & stdlib
+```mks
+using "path/to/file";   // .mks optional
+using "std/math";       // built-in path
+```
+Resolution: current file dir → CWD → installed std path. A module runs once (duplicate/nested imports are skipped).
+
+`std/math.mks` (pure MKS):
+```mks
+using "std/math";
+Writeln(abs(-5));
+Writeln(square(4));
+Writeln(min(10, 3));
+Writeln(max(10, 3));
+```
+
+## Watch / defer
+```mks
+watch x;
+on change x -> Writeln("x changed to ", x); <-
+
+defer -> Writeln("leaving scope"); <-
+```
+`on change` must be registered before the assignment you want to observe.
+
+## CLI
+```
+mks <file.mks>   # run file
+mks --repl       # interactive REPL
+mks --version
+mks --help
+```
+
+
+## Repo layout
+- `Lexer/` – tokens
+- `Parser/` – AST + parsing
+- `Eval/` – evaluation
+- `Runtime/` – values, operators, modules, errors
+- `env/` – variable scopes
+- `GC/` – garbage collector
+- `std/` – bundled stdlib (`std/math.mks`)
+- `examples/` – runnable samples
+- `docs/` – reference / guides
+- `tests/` – golden tests (`./tests.sh`)
+
+## Docs
+- `docs/REFERENCE.md` — quick reference (syntax & examples).
+- `docs/USER_GUIDE.md` — step-by-step guide (entities, extend, watch/defer, repeat, swap).
+
+## Status
+Active, experimental. APIs may change. Friendly errors should point to the fix; if not, please open an issue.
+
+## Badges
+![Build](https://img.shields.io/badge/build-passing-brightgreen)
+![License](https://img.shields.io/badge/license-APACHE-blue)
+![Status](https://img.shields.io/badge/status-experimental-orange)

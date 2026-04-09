@@ -1,0 +1,8 @@
+using "std/bool";
+
+Writeln(true);
+Writeln(false);
+Writeln(not(true));
+Writeln(not(false));
+Writeln(and(true, false));
+Writeln(or(false, true));

@@ -1,4 +1,5 @@
 #include "indexing.h"
+#include "errors.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -25,15 +26,13 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
 
         if (i < 0 || i >= len) {
             gc_pop_root();
-            fprintf(stderr, "Runtime Error: String index %d out of bounds (length %d)\n", i, len);
-            exit(1);
+            runtime_error("String index %d out of bounds (length %d)", i, len);
         }
 
         char *tmp = (char *)malloc(2);
         if (tmp == NULL) {
             gc_pop_root();
-            fprintf(stderr, "Runtime Error: Out of memory in string indexing\n");
-            exit(1);
+            runtime_error("Out of memory in string indexing");
         }
 
         tmp[0] = str->data[i];
@@ -48,8 +47,7 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
 
         if (i < 0 || i >= arr->count) {
             gc_pop_root();
-            fprintf(stderr, "Runtime Error: Array index %d out of bounds (size %d)\n", i, arr->count);
-            exit(1);
+            runtime_error("Array index %d out of bounds (size %d)", i, arr->count);
         }
 
         const RuntimeValue result = arr->elements[i];
@@ -58,8 +56,8 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
     }
 
     gc_pop_root();
-    fprintf(stderr, "Runtime Error: Type is not indexable\n");
-    exit(1);
+    runtime_error("Type is not indexable");
+    return make_null();
 }
 
 RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
@@ -85,16 +83,14 @@ RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
         if (target.type != VAL_ARRAY) {
             gc_pop_root();
             gc_pop_root();
-            fprintf(stderr, "Runtime Error: Only arrays support index assignment\n");
-            exit(1);
+            runtime_error("Only arrays support index assignment");
         }
 
         const ManagedArray *arr = target.data.managed_array;
         if (i < 0 || i >= arr->count) {
             gc_pop_root();
             gc_pop_root();
-            fprintf(stderr, "Runtime Error: Array index %d out of bounds in assignment (size %d)\n", i, arr->count);
-            exit(1);
+            runtime_error("Array index %d out of bounds in assignment (size %d)", i, arr->count);
         }
 
         arr->elements[i] = val;
@@ -105,6 +101,6 @@ RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
     }
 
     gc_pop_root();
-    fprintf(stderr, "Runtime Error: Invalid index assignment target\n");
-    exit(1);
+    runtime_error("Invalid index assignment target");
+    return make_null();
 }

@@ -80,6 +80,37 @@ ASTNode *create_ast_index_assign(ASTNode *left, ASTNode *right, int line) {
     return node;
 }
 
+ASTNode *create_ast_swap(ASTNode *l, ASTNode *r, int line) {
+    ASTNode *node = create_ast(AST_SWAP, line);
+    node->data.swap_stmt.left = l;
+    node->data.swap_stmt.right = r;
+    return node;
+}
+
+ASTNode *create_ast_test(char *name, ASTNode *body, int line) {
+    ASTNode *node = create_ast(AST_TEST, line);
+    node->data.test_block.name = name;
+    node->data.test_block.body = body;
+    return node;
+}
+
+ASTNode *create_ast_obj_get(ASTNode *object, char *field, unsigned int hash, int line) {
+    ASTNode *node = create_ast(AST_OBJ_GET, line);
+    node->data.obj_get.object = object;
+    node->data.obj_get.field = field;
+    node->data.obj_get.field_hash = hash;
+    return node;
+}
+
+ASTNode *create_ast_obj_set(ASTNode *object, char *field, unsigned int hash, ASTNode *value, int line) {
+    ASTNode *node = create_ast(AST_OBJ_SET, line);
+    node->data.obj_set.object = object;
+    node->data.obj_set.field = field;
+    node->data.obj_set.field_hash = hash;
+    node->data.obj_set.value = value;
+    return node;
+}
+
 ASTNode *create_ast_block(ASTNode **items, int count, int line) {
     ASTNode *node = create_ast(AST_BLOCK, line);
     node->data.block.items = items;
@@ -117,9 +148,10 @@ ASTNode *create_ast_return(ASTNode *value, int line) {
     return node;
 }
 
-ASTNode *create_ast_func_decl(char *name, char **params,unsigned int *param_hashes, const int param_count,ASTNode *body, const int line) {
+ASTNode *create_ast_func_decl(char *name, unsigned int name_hash, char **params,unsigned int *param_hashes, const int param_count,ASTNode *body, const int line) {
     ASTNode *node = create_ast(AST_FUNC_DECL, line);
     node->data.func_decl.name = name;
+    node->data.func_decl.name_hash = name_hash;
     node->data.func_decl.params = params;
     node->data.func_decl.param_hashes = param_hashes;
     node->data.func_decl.param_count = param_count;
@@ -146,10 +178,70 @@ ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_has
     return node;
 }
 
+ASTNode *create_ast_entity(char *name, unsigned int hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *init_body, ASTNode **methods, int method_count, int line) {
+    ASTNode *node = create_ast(AST_ENTITY, line);
+    node->data.entity.name = name;
+    node->data.entity.name_hash = hash;
+    node->data.entity.params = params;
+    node->data.entity.param_hashes = param_hashes;
+    node->data.entity.param_count = param_count;
+    node->data.entity.init_body = init_body;
+    node->data.entity.methods = methods;
+    node->data.entity.method_count = method_count;
+    return node;
+}
+
+ASTNode *create_ast_extend(int target_type, ASTNode **methods, int method_count, int line) {
+    ASTNode *node = create_ast(AST_EXTEND, line);
+    node->data.extend.target_type = target_type;
+    node->data.extend.methods = methods;
+    node->data.extend.method_count = method_count;
+    return node;
+}
+
+ASTNode *create_ast_defer(ASTNode *body, int line) {
+    ASTNode *node = create_ast(AST_DEFER, line);
+    node->data.defer_stmt.body = body;
+    return node;
+}
+
+ASTNode *create_ast_watch(char *name, unsigned int hash, int line) {
+    ASTNode *node = create_ast(AST_WATCH, line);
+    node->data.watch_stmt.name = name;
+    node->data.watch_stmt.hash = hash;
+    return node;
+}
+
+ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int line) {
+    ASTNode *node = create_ast(AST_ON_CHANGE, line);
+    node->data.on_change_stmt.name = name;
+    node->data.on_change_stmt.hash = hash;
+    node->data.on_change_stmt.body = body;
+    return node;
+}
+
 ASTNode *create_ast_using(char *path, char *alias, int line) {
     ASTNode *node = create_ast(AST_USING, line);
     node->data.using_stmt.path = path;
     node->data.using_stmt.alias = alias;
+    return node;
+}
+
+ASTNode *create_ast_break(int line) {
+    return create_ast(AST_BREAK, line);
+}
+
+ASTNode *create_ast_continue(int line) {
+    return create_ast(AST_CONTINUE, line);
+}
+
+ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, ASTNode *count_expr, ASTNode *body, int line) {
+    ASTNode *node = create_ast(AST_REPEAT, line);
+    node->data.repeat_stmt.has_iterator = has_iter;
+    node->data.repeat_stmt.iter_name = iter;
+    node->data.repeat_stmt.iter_hash = iter_hash;
+    node->data.repeat_stmt.count_expr = count_expr;
+    node->data.repeat_stmt.body = body;
     return node;
 }
 
@@ -280,9 +372,76 @@ void delete_ast_node(ASTNode *node) {
             }
             break;
 
+        case AST_OBJ_GET:
+            delete_ast_node(node->data.obj_get.object);
+            free(node->data.obj_get.field);
+            break;
+
+        case AST_OBJ_SET:
+            delete_ast_node(node->data.obj_set.object);
+            delete_ast_node(node->data.obj_set.value);
+            free(node->data.obj_set.field);
+            break;
+
+        case AST_SWAP:
+            delete_ast_node(node->data.swap_stmt.left);
+            delete_ast_node(node->data.swap_stmt.right);
+            break;
+
+        case AST_TEST:
+            free(node->data.test_block.name);
+            delete_ast_node(node->data.test_block.body);
+            break;
+
+        case AST_ENTITY:
+            free(node->data.entity.name);
+            if (node->data.entity.params) {
+                for (int i = 0; i < node->data.entity.param_count; i++) {
+                    free(node->data.entity.params[i]);
+                }
+                free(node->data.entity.params);
+                free(node->data.entity.param_hashes);
+            }
+            delete_ast_node(node->data.entity.init_body);
+            if (node->data.entity.methods) {
+                for (int i = 0; i < node->data.entity.method_count; i++) {
+                    delete_ast_node(node->data.entity.methods[i]);
+                }
+                free(node->data.entity.methods);
+            }
+            break;
+
+        case AST_EXTEND:
+            if (node->data.extend.methods) {
+                for (int i = 0; i < node->data.extend.method_count; i++) {
+                    delete_ast_node(node->data.extend.methods[i]);
+                }
+                free(node->data.extend.methods);
+            }
+            break;
+
         case AST_USING:
             free(node->data.using_stmt.path);
             free(node->data.using_stmt.alias);
+            break;
+
+        case AST_DEFER:
+            delete_ast_node(node->data.defer_stmt.body);
+            break;
+
+        case AST_WATCH:
+            free(node->data.watch_stmt.name);
+            break;
+
+        case AST_ON_CHANGE:
+            free(node->data.on_change_stmt.name);
+            delete_ast_node(node->data.on_change_stmt.body);
+            break;
+
+        case AST_REPEAT:
+            free(node->data.repeat_stmt.iter_name);
+            delete_ast_node(node->data.repeat_stmt.count_expr);
+            delete_ast_node(node->data.repeat_stmt.body);
             break;
 
         case AST_INDEX_ASSIGN:

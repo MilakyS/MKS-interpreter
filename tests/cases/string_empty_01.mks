@@ -1,0 +1,3 @@
+var s =: "";
+Writeln(s.empty());
+Writeln(s.len());

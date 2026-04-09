@@ -23,6 +23,18 @@ typedef enum ASTNodeType {
     AST_METHOD_CALL,
     AST_USING,
     AST_INDEX_ASSIGN,
+    AST_SWAP,
+    AST_TEST,
+    AST_OBJ_GET,
+    AST_OBJ_SET,
+    AST_ENTITY,
+    AST_EXTEND,
+    AST_DEFER,
+    AST_WATCH,
+    AST_ON_CHANGE,
+    AST_BREAK,
+    AST_CONTINUE,
+    AST_REPEAT,
 } ASTNodeType;
 
 typedef struct ASTNode {
@@ -93,6 +105,7 @@ typedef struct ASTNode {
 
         struct {
             char *name;
+            unsigned int name_hash;
             char **params;
             unsigned int *param_hashes;
             int param_count;
@@ -122,9 +135,72 @@ typedef struct ASTNode {
         } index_assign;
 
         struct {
+            struct ASTNode *object;
+            char *field;
+            unsigned int field_hash;
+        } obj_get;
+
+        struct {
+            struct ASTNode *object;
+            char *field;
+            unsigned int field_hash;
+            struct ASTNode *value;
+        } obj_set;
+
+        struct {
+            struct ASTNode *left;
+            struct ASTNode *right;
+        } swap_stmt;
+
+        struct {
+            char *name;
+            struct ASTNode *body;
+        } test_block;
+
+        struct {
+            char *name;
+            unsigned int name_hash;
+            char **params;
+            unsigned int *param_hashes;
+            int param_count;
+            struct ASTNode *init_body;
+            struct ASTNode **methods;
+            int method_count;
+        } entity;
+
+        struct {
+            int target_type; /* enum ExtTarget */
+            struct ASTNode **methods;
+            int method_count;
+        } extend;
+
+        struct {
+            struct ASTNode *body;
+        } defer_stmt;
+
+        struct {
+            char *name;
+            unsigned int hash;
+        } watch_stmt;
+
+        struct {
+            char *name;
+            unsigned int hash;
+            struct ASTNode *body;
+        } on_change_stmt;
+
+        struct {
             char *path;
             char *alias;
         } using_stmt;
+
+        struct {
+            bool has_iterator;
+            char *iter_name;
+            unsigned int iter_hash;
+            struct ASTNode *count_expr;
+            struct ASTNode *body;
+        } repeat_stmt;
 
         struct {
             struct ASTNode **args;
@@ -146,6 +222,10 @@ ASTNode *create_ast_array(ASTNode **elements, int count, int line);
 ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, int op, int line);
 ASTNode *create_ast_index(ASTNode *target, ASTNode *index, int line);
 ASTNode *create_ast_index_assign(ASTNode *left, ASTNode *right, int line);
+ASTNode *create_ast_swap(ASTNode *l, ASTNode *r, int line);
+ASTNode *create_ast_test(char *name, ASTNode *body, int line);
+ASTNode *create_ast_obj_get(ASTNode *object, char *field, unsigned int hash, int line);
+ASTNode *create_ast_obj_set(ASTNode *object, char *field, unsigned int hash, ASTNode *value, int line);
 
 ASTNode *create_ast_block(ASTNode **items, int count, int line);
 ASTNode *create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block, int line);
@@ -153,12 +233,21 @@ ASTNode *create_while_block(ASTNode *condition, ASTNode *body, int line);
 ASTNode *create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNode *body, int line);
 ASTNode *create_ast_return(ASTNode *value, int line);
 
-ASTNode *create_ast_func_decl(char *name, char **params,unsigned int *param_hashes, int param_count,ASTNode *body, int line);
+ASTNode *create_ast_func_decl(char *name, unsigned int name_hash, char **params,unsigned int *param_hashes, int param_count,ASTNode *body, int line);
 ASTNode *create_ast_func_call(char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line);
 ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line);
 
 ASTNode *create_ast_using(char *path, char *alias, int line);
 ASTNode *create_ast_output(ASTNode **args, int count, bool is_newline, int line);
+
+ASTNode *create_ast_entity(char *name, unsigned int hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *init_body, ASTNode **methods, int method_count, int line);
+ASTNode *create_ast_extend(int target_type, ASTNode **methods, int method_count, int line);
+ASTNode *create_ast_defer(ASTNode *body, int line);
+ASTNode *create_ast_watch(char *name, unsigned int hash, int line);
+ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int line);
+ASTNode *create_ast_break(int line);
+ASTNode *create_ast_continue(int line);
+ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, ASTNode *count_expr, ASTNode *body, int line);
 
 
 void delete_ast_node(ASTNode *node);

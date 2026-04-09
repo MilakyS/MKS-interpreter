@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include "../GC/gc.h"
 
+struct Environment;
+
 struct ASTNode;
 struct Environment;
 
@@ -30,11 +32,19 @@ enum ValueType {
     VAL_FUNC,
     VAL_NATIVE_FUNC,
     VAL_RETURN,
+    VAL_BREAK,
+    VAL_CONTINUE,
     VAL_OBJECT,
+    VAL_BLUEPRINT,
     VAL_NULL,
 };
 
 typedef RuntimeValue (*NativeFn)(const RuntimeValue *args, int arg_count);
+
+typedef struct NativeWithCtx {
+    NativeFn fn;
+    void *ctx;
+} NativeWithCtx;
 
 struct RuntimeValue {
     enum ValueType type;
@@ -50,8 +60,13 @@ struct RuntimeValue {
             struct Environment *closure_env;
         } func;
 
-        NativeFn native_func;
+        NativeWithCtx native;
         struct Environment *obj_env;
+
+        struct {
+            const struct ASTNode *entity_node;
+            struct Environment *closure_env;
+        } blueprint;
     } data;
 };
 
@@ -62,5 +77,9 @@ RuntimeValue make_string_owned(char *str, size_t len);
 RuntimeValue make_string_len(const char *str, size_t len);
 RuntimeValue make_array(int initial_capacity);
 RuntimeValue make_null(void);
+RuntimeValue make_object(struct Environment *env);
+RuntimeValue make_blueprint(const struct ASTNode *entity_node, struct Environment *closure_env);
+RuntimeValue make_break(void);
+RuntimeValue make_continue(void);
 
 #endif

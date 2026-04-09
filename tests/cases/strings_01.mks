@@ -1,0 +1,6 @@
+var s =: "Hello";
+Writeln(s);
+Writeln(s[1]);
+Writeln(s.upper());
+Writeln(s.lower());
+Writeln(s.len());

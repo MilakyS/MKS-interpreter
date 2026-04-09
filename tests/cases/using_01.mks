@@ -1,0 +1,6 @@
+using "math.mks";
+Writeln(PI);
+Writeln(get_circle_area(2));
+
+using "math.mks"; // duplicate should be skipped
+Writeln(VERSION);

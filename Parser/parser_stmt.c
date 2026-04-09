@@ -11,12 +11,45 @@ static ASTNode* parser_parse_while(Parser *parser);
 static ASTNode* parser_parse_for(Parser *parser);
 static ASTNode* parser_parse_output(Parser *parser, bool newline);
 static ASTNode* parser_parse_func_decl(Parser *parser);
+static ASTNode* parser_parse_entity(Parser *parser);
+static ASTNode* parser_parse_extend(Parser *parser);
 static ASTNode* parser_parse_return(Parser *parser);
+static ASTNode* parser_parse_test(Parser *parser);
+static ASTNode* parser_parse_defer(Parser *parser);
+static ASTNode* parser_parse_watch(Parser *parser);
+static ASTNode* parser_parse_on_change(Parser *parser);
+static ASTNode* parser_parse_break(Parser *parser);
+static ASTNode* parser_parse_continue(Parser *parser);
+static ASTNode* parser_parse_repeat(Parser *parser);
 
 ASTNode* parser_parse_statement(Parser *parser) {
     const enum TokenType type = parser->current_token.type;
 
+    if (type == TOKEN_IDENTIFIER && parser_current_is_identifier(parser, "test")) {
+        return parser_parse_test(parser);
+    }
+
     switch (type) {
+        case TOKEN_KW_BREAK:
+            return parser_parse_break(parser);
+
+        case TOKEN_KW_CONTINUE:
+            return parser_parse_continue(parser);
+
+        case TOKEN_KW_REPEAT:
+            return parser_parse_repeat(parser);
+
+        case TOKEN_KW_DEFER:
+            return parser_parse_defer(parser);
+
+        case TOKEN_KW_WATCH:
+            return parser_parse_watch(parser);
+
+        case TOKEN_KW_ON:
+            if (peek_token_type(parser) == TOKEN_KW_CHANGE) {
+                return parser_parse_on_change(parser);
+            }
+            break;
         case TOKEN_KW_USING:
             return parser_parse_using(parser);
 
@@ -41,6 +74,12 @@ ASTNode* parser_parse_statement(Parser *parser) {
         case TOKEN_KW_FNC:
             return parser_parse_func_decl(parser);
 
+        case TOKEN_KW_ENTITY:
+            return parser_parse_entity(parser);
+
+        case TOKEN_KW_EXTEND:
+            return parser_parse_extend(parser);
+
         case TOKEN_KW_RETURN:
             return parser_parse_return(parser);
 
@@ -54,6 +93,74 @@ ASTNode* parser_parse_statement(Parser *parser) {
             return expr;
         }
     }
+
+    return NULL;
+}
+
+static ASTNode* parser_parse_break(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_BREAK);
+    if (parser->current_token.type == TOKEN_SEMICOLON) {
+        parser_eat(parser, TOKEN_SEMICOLON);
+    }
+    return create_ast_break(line);
+}
+
+static ASTNode* parser_parse_continue(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_CONTINUE);
+    if (parser->current_token.type == TOKEN_SEMICOLON) {
+        parser_eat(parser, TOKEN_SEMICOLON);
+    }
+    return create_ast_continue(line);
+}
+
+static ASTNode* parser_parse_repeat(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_REPEAT);
+
+    bool has_iter = false;
+    char *iter_name = NULL;
+    unsigned int iter_hash = 0;
+    ASTNode *count_expr = NULL;
+
+    if (parser->current_token.type == TOKEN_IDENTIFIER &&
+        peek_token_type(parser) == TOKEN_KW_IN) {
+        has_iter = true;
+        iter_name = parser_take_identifier(parser, &iter_hash);
+        parser_eat(parser, TOKEN_KW_IN);
+    }
+
+    count_expr = parser_parse_expression(parser);
+    ASTNode *body = parser_parse_block(parser);
+    return create_ast_repeat(has_iter, iter_name, iter_hash, count_expr, body, line);
+}
+
+static ASTNode* parser_parse_defer(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_DEFER);
+    ASTNode *body = parser_parse_block(parser);
+    return create_ast_defer(body, line);
+}
+
+static ASTNode* parser_parse_watch(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_WATCH);
+
+    unsigned int h = 0;
+    char *name = parser_take_identifier(parser, &h);
+    parser_eat(parser, TOKEN_SEMICOLON);
+    return create_ast_watch(name, h, line);
+}
+
+static ASTNode* parser_parse_on_change(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_ON);
+    parser_eat(parser, TOKEN_KW_CHANGE);
+    unsigned int h = 0;
+    char *name = parser_take_identifier(parser, &h);
+    ASTNode *body = parser_parse_block(parser);
+    return create_ast_on_change(name, h, body, line);
 }
 
 ASTNode* parser_parse_block(Parser *parser) {
@@ -123,6 +230,133 @@ static ASTNode* parser_parse_var_decl(Parser *parser) {
     parser_eat(parser, TOKEN_SEMICOLON);
 
     return create_ast_var_decl(value, line, name, name_hash);
+}
+
+static ASTNode* parser_parse_method(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_METHOD);
+
+    unsigned int name_hash = 0;
+    char *name = parser_take_identifier(parser, &name_hash);
+
+    parser_eat(parser, TOKEN_LPAREL);
+
+    char **params = NULL;
+    unsigned int *param_hashes = NULL;
+    int param_count = 0, param_cap = 0;
+
+    if (parser->current_token.type != TOKEN_RPAREL) {
+        do {
+            unsigned int ph = 0;
+            char *p = parser_take_identifier(parser, &ph);
+            parser_push_str(&params, &param_count, &param_cap, p);
+
+            unsigned int *tmp = (unsigned int *)parser_xrealloc(param_hashes, sizeof(unsigned int) * (size_t)param_count);
+            param_hashes = tmp;
+            param_hashes[param_count - 1] = ph;
+        } while (parser_match(parser, TOKEN_COMMA));
+    }
+
+    parser_eat(parser, TOKEN_RPAREL);
+
+    ASTNode *body = parser_parse_block(parser);
+
+    return create_ast_func_decl(name, name_hash, params, param_hashes, param_count, body, line);
+}
+
+static ASTNode* parser_parse_entity(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_ENTITY);
+
+    unsigned int name_hash = 0;
+    char *name = parser_take_identifier(parser, &name_hash);
+
+    parser_eat(parser, TOKEN_LPAREL);
+    char **params = NULL; unsigned int *param_hashes = NULL; int param_count = 0, param_cap = 0;
+    if (parser->current_token.type != TOKEN_RPAREL) {
+        do {
+            unsigned int ph = 0;
+            char *p = parser_take_identifier(parser, &ph);
+            parser_push_str(&params, &param_count, &param_cap, p);
+
+            unsigned int *tmp = (unsigned int *)parser_xrealloc(param_hashes, sizeof(unsigned int) * (size_t)param_count);
+            param_hashes = tmp;
+            param_hashes[param_count - 1] = ph;
+        } while (parser_match(parser, TOKEN_COMMA));
+    }
+    parser_eat(parser, TOKEN_RPAREL);
+
+    parser_eat(parser, TOKEN_BLOCK_START);
+
+    ASTNode *init_body = NULL;
+    ASTNode **methods = NULL; int method_count = 0, method_cap = 0;
+
+    while (parser->current_token.type != TOKEN_BLOCK_END &&
+           parser->current_token.type != TOKEN_EOF) {
+        if (parser->current_token.type == TOKEN_KW_INIT) {
+            parser_eat(parser, TOKEN_KW_INIT);
+            init_body = parser_parse_block(parser);
+            continue;
+        }
+        if (parser->current_token.type == TOKEN_KW_METHOD) {
+            ASTNode *m = parser_parse_method(parser);
+            parser_push_ast(&methods, &method_count, &method_cap, m);
+            continue;
+        }
+        parser_error(parser, "Unexpected token in entity block");
+    }
+
+    parser_eat(parser, TOKEN_BLOCK_END);
+
+    return create_ast_entity(name, name_hash, params, param_hashes, param_count, init_body, methods, method_count, line);
+}
+
+static int parse_extend_target(Parser *parser) {
+    if (parser->current_token.type != TOKEN_IDENTIFIER) {
+        parser_error(parser, "Expected type name after extend");
+    }
+    int target = -1;
+    if (parser_current_is_identifier(parser, "array")) target = 0;
+    else if (parser_current_is_identifier(parser, "string")) target = 1;
+    else if (parser_current_is_identifier(parser, "number")) target = 2;
+    else parser_error(parser, "Unsupported extend target");
+    parser_advance(parser);
+    return target;
+}
+
+static ASTNode* parser_parse_extend(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_EXTEND);
+    int target = parse_extend_target(parser);
+    parser_eat(parser, TOKEN_BLOCK_START);
+
+    ASTNode **methods = NULL; int mc = 0, mcap = 0;
+    while (parser->current_token.type != TOKEN_BLOCK_END &&
+           parser->current_token.type != TOKEN_EOF) {
+        if (parser->current_token.type == TOKEN_KW_METHOD) {
+            ASTNode *m = parser_parse_method(parser);
+            parser_push_ast(&methods, &mc, &mcap, m);
+            continue;
+        }
+        parser_error(parser, "Unexpected token in extend block");
+    }
+
+    parser_eat(parser, TOKEN_BLOCK_END);
+    return create_ast_extend(target, methods, mc, line);
+}
+
+static ASTNode* parser_parse_test(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_IDENTIFIER);
+
+    if (parser->current_token.type != TOKEN_TYPE_STRING) {
+        parser_error(parser, "Expected test name string");
+    }
+    char *name = mks_strndup(parser->current_token.start, (size_t)parser->current_token.length);
+    parser_eat(parser, TOKEN_TYPE_STRING);
+
+    ASTNode *body = parser_parse_block(parser);
+    return create_ast_test(name, body, line);
 }
 
 static ASTNode* parser_parse_if(Parser *parser) {
@@ -241,8 +475,8 @@ static ASTNode* parser_parse_func_decl(Parser *parser) {
 
     parser_eat(parser, TOKEN_KW_FNC);
 
-    unsigned int ignored_hash = 0;
-    char *func_name = parser_take_identifier(parser, &ignored_hash);
+    unsigned int func_hash = 0;
+    char *func_name = parser_take_identifier(parser, &func_hash);
 
     parser_eat(parser, TOKEN_LPAREL);
 
@@ -285,7 +519,7 @@ static ASTNode* parser_parse_func_decl(Parser *parser) {
     parser_eat(parser, TOKEN_RPAREL);
 
     ASTNode *body = parser_parse_block(parser);
-    return create_ast_func_decl(func_name, params, param_hashes, param_count, body, line);
+    return create_ast_func_decl(func_name, func_hash, params, param_hashes, param_count, body, line);
 }
 
 static ASTNode* parser_parse_return(Parser *parser) {

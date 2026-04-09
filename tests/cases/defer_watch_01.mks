@@ -1,0 +1,17 @@
+watch x;
+on change x ->
+    Writeln("x changed", x);
+<-
+
+var x =: 1;
+x =: 2;
+
+defer ->
+    Writeln("d1");
+<-
+
+defer ->
+    Writeln("d2");
+<-
+
+Writeln("body");
