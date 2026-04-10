@@ -67,8 +67,9 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
         Environment *local_env = env_create_child(callable.data.func.closure_env);
         gc_push_env(local_env);
 
+        /* BOLT: Use pre-computed hashes for parameters to avoid redundant get_hash calls in recursion */
         for (int i = 0; i < param_count; i++) {
-            env_set(local_env, decl->data.func_decl.params[i], args[i]);
+            env_set_fast(local_env, decl->data.func_decl.params[i], decl->data.func_decl.param_hashes[i], args[i]);
         }
 
         result = unwrap(eval(decl->data.func_decl.body, local_env));
@@ -107,11 +108,16 @@ RuntimeValue eval_blueprint_construct(RuntimeValue blueprint, RuntimeValue *args
     gc_push_env(obj_env);
 
     RuntimeValue self = make_object(obj_env);
-    env_set(obj_env, "self", self);
+    /* BOLT: Cached hash for 'self' to avoid re-hashing on every object instantiation. */
+    static unsigned int self_hash = 0;
+    if (self_hash == 0) self_hash = get_hash("self");
+    env_set_fast(obj_env, "self", self_hash, self);
 
+    /* BOLT: Use pre-computed hashes for entity parameters. */
     for (int i = 0; i < param_count; i++) {
-        env_set(obj_env,
+        env_set_fast(obj_env,
                 entity->data.entity.params[i],
+                entity->data.entity.param_hashes[i],
                 args[i]);
     }
 
