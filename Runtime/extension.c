@@ -5,6 +5,7 @@
 #include "errors.h"
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
+#include "../Utils/hash.h"
 
 typedef struct ExtMethod {
     unsigned int hash;
@@ -91,9 +92,14 @@ RuntimeValue dispatch_extension(enum ValueType vtype, unsigned int hash, const c
 
             Environment *local_env = env_create_child(tab->items[i].closure_env);
             gc_push_env(local_env);
-            env_set(local_env, "self", target);
+            /* BOLT: Cached hash for 'self' to avoid re-hashing on every extension call. */
+            static unsigned int self_hash = 0;
+            if (self_hash == 0) self_hash = get_hash("self");
+            env_set_fast(local_env, "self", self_hash, target);
+
+            /* BOLT: Use pre-computed hashes for parameters. */
             for (int j = 0; j < param_count; j++) {
-                env_set(local_env, decl->data.func_decl.params[j], args[j]);
+                env_set_fast(local_env, decl->data.func_decl.params[j], decl->data.func_decl.param_hashes[j], args[j]);
             }
             const RuntimeValue res = unwrap(eval(decl->data.func_decl.body, local_env));
             gc_pop_env();
