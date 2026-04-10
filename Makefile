@@ -26,6 +26,12 @@ SRC = \
 	Runtime/indexing.c \
 	Runtime/methods.c \
 	Runtime/control_flow.c \
+	Runtime/errors.c \
+	Runtime/extension.c \
+	Runtime/module.c \
+	Runtime/profiler.c \
+	Runtime/watch.c \
+	Utils/file.c \
 	Utils/hash.c \
 	GC/gc.c
 
