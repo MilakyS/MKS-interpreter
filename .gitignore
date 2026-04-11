@@ -10,6 +10,8 @@ cmake-build-*/
 *.dll
 *.so
 *.dylib
+mks_run
+mks_run_san
 
 # IDE
 .idea/
