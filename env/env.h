@@ -18,6 +18,7 @@ typedef struct EnvVar {
 typedef struct Environment {
     GCObject gc;
     EnvVar **buckets;
+    EnvVar *inline_buckets[ENV_INITIAL_BUCKET_COUNT];
     size_t bucket_count;
     size_t entry_count;
     struct Environment *parent;
