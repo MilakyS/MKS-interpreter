@@ -2,9 +2,9 @@ name: MKS CI
 
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: [main, master]
   pull_request:
-    branches: [ "master", "main" ]
+    branches: [main, master]
 
 permissions:
   contents: read
@@ -19,10 +19,13 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential make gcc
+          sudo apt-get install -y cmake build-essential
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: make clean && make
+        run: cmake --build build --config Release
 
       - name: Create stress test
         run: |
@@ -46,7 +49,7 @@ jobs:
           EOF
 
       - name: Run stress test
-        run: ./mks_run stress_test.mks
+        run: ./build/mks stress_test.mks
 
   sanitizer:
     runs-on: ubuntu-latest
@@ -57,10 +60,13 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential make gcc
+          sudo apt-get install -y cmake build-essential
+
+      - name: Configure sanitizer build
+        run: cmake -B build-asan -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON
 
       - name: Build sanitizer
-        run: make clean && make san
+        run: cmake --build build-asan --config Debug
 
       - name: Create sanitizer test
         run: |
@@ -73,4 +79,4 @@ jobs:
           EOF
 
       - name: Run sanitizer test
-        run: ASAN_OPTIONS=detect_leaks=1 ./mks_run_san san_test.mks
+        run: ASAN_OPTIONS=detect_leaks=1 ./build-asan/mks san_test.mks
