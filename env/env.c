@@ -68,7 +68,9 @@ static void env_resize(Environment *env, const size_t new_bucket_count) {
         }
     }
 
-    free(env->buckets);
+    if (env->buckets != env->inline_buckets) {
+        free(env->buckets);
+    }
     env->buckets = new_buckets;
     env->bucket_count = new_bucket_count;
 }
@@ -76,7 +78,8 @@ static void env_resize(Environment *env, const size_t new_bucket_count) {
 static void env_maybe_grow(Environment *env) {
     if (env->bucket_count == 0) {
         env->bucket_count = ENV_INITIAL_BUCKET_COUNT;
-        env->buckets = env_alloc_buckets(env->bucket_count);
+        env->buckets = env->inline_buckets;
+        memset(env->inline_buckets, 0, sizeof(env->inline_buckets));
         return;
     }
 
@@ -92,7 +95,8 @@ static void env_maybe_grow(Environment *env) {
 void env_init(Environment *env) {
     env->bucket_count = ENV_INITIAL_BUCKET_COUNT;
     env->entry_count = 0;
-    env->buckets = env_alloc_buckets(env->bucket_count);
+    env->buckets = env->inline_buckets;
+    memset(env->inline_buckets, 0, sizeof(env->inline_buckets));
     env->parent = NULL;
 }
 
@@ -115,7 +119,8 @@ void env_set_fast(Environment *env, const char *name, const unsigned int h, Runt
     if (env->bucket_count == 0 || env->buckets == NULL) {
         env->bucket_count = ENV_INITIAL_BUCKET_COUNT;
         env->entry_count = 0;
-        env->buckets = env_alloc_buckets(env->bucket_count);
+        env->buckets = env->inline_buckets;
+        memset(env->inline_buckets, 0, sizeof(env->inline_buckets));
     }
 
     const size_t index = env_bucket_index(h, env->bucket_count);

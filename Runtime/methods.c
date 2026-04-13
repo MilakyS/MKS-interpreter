@@ -492,7 +492,7 @@ static RuntimeValue handle_object_method(
         Environment *local_env = env_create_child(target.data.obj_env);
         gc_push_env(local_env);
 
-        env_set(local_env, "self", target);
+        env_set_fast(local_env, "self", 0x7C9DDB0F, target);
 
         const int param_count = decl->data.func_decl.param_count;
         if (arg_count != param_count) {
@@ -506,7 +506,7 @@ static RuntimeValue handle_object_method(
         }
 
         for (int i = 0; i < param_count; i++) {
-            env_set(local_env, decl->data.func_decl.params[i], args[i]);
+            env_set_fast(local_env, decl->data.func_decl.params[i], decl->data.func_decl.param_hashes[i], args[i]);
         }
 
         RuntimeValue result = unwrap(eval(decl->data.func_decl.body, local_env));

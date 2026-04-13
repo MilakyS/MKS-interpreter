@@ -1,0 +1,3 @@
+## 2025-05-15 - Inline Environment Buckets & Pre-computed Hashes
+**Learning:** Inlining the initial hash table buckets directly in the `Environment` struct significantly reduces allocator pressure in languages with frequent scope creation (like recursive functions). Combining this with pre-computed hashes for parameters in the AST further reduces overhead by avoiding redundant string hashing during every function/method call.
+**Action:** Always consider Small Object Optimization (SOO) for frequently allocated metadata structures and leverage parser-time work (like hashing) to speed up the hot path of the interpreter.

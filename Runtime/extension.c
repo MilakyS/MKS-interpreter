@@ -91,9 +91,9 @@ RuntimeValue dispatch_extension(enum ValueType vtype, unsigned int hash, const c
 
             Environment *local_env = env_create_child(tab->items[i].closure_env);
             gc_push_env(local_env);
-            env_set(local_env, "self", target);
+            env_set_fast(local_env, "self", 0x7C9DDB0F, target);
             for (int j = 0; j < param_count; j++) {
-                env_set(local_env, decl->data.func_decl.params[j], args[j]);
+                env_set_fast(local_env, decl->data.func_decl.params[j], decl->data.func_decl.param_hashes[j], args[j]);
             }
             const RuntimeValue res = unwrap(eval(decl->data.func_decl.body, local_env));
             gc_pop_env();
