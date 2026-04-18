@@ -69,13 +69,22 @@ add_executable(mks
         Runtime/errors.h
         Runtime/profiler.c
         Runtime/profiler.h
-        Runtime/watch.c
-        Runtime/watch.h
+        std/watch.c
+        std/watch.h
         Utils/file.c
         Utils/file.h
 
         GC/gc.c
         GC/gc.h
+
+        std/registry.c
+        std/math.c
+        std/time.c
+        std/random.c
+        std/fs.c
+        std/fs.h
+        std/tty.c
+        std/tty.h
 )
 
 if(NOT MSVC)

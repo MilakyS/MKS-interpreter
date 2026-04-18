@@ -1,25 +1,29 @@
-# Build
+# Build outputs
 build/
 cmake-build-*/
 *.o
 *.obj
 *.pch
-*.ilk
-*.pdb
 *.exe
-*.dll
+*.out
+*.a
 *.so
 *.dylib
 
-# IDE
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# Logs / misc
+*.log
+*.swp
+*.swo
+*.tmp
+*.cache
+.DS_Store
 .idea/
 .vscode/
-*.code-workspace
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Tests/tmp
-/tmp/
-.codex

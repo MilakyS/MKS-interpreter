@@ -58,6 +58,8 @@ void gc_resume(void);
 
 void gc_push_root(struct RuntimeValue *val);
 void gc_pop_root(void);
+int gc_value_needs_root(const struct RuntimeValue *val);
+int gc_push_root_if_needed(struct RuntimeValue *val);
 
 int gc_save_stack(void);
 void gc_restore_stack(int top);

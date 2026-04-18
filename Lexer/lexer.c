@@ -12,26 +12,20 @@ static void advance(struct Lexer *lexer) {
     lexer->current_char = lexer->source[lexer->position];
 }
 
-static char peek(const struct Lexer *lexer) {
-    if (lexer->source[lexer->position + 1] == '\0') {
-        return '\0';
-    }
-
-    return lexer->source[lexer->position + 1];
-}
-
 void Token_init(struct Lexer *lexer, const char *source) {
     lexer->source = source;
     lexer->position = 0;
     lexer->line = 1;
     lexer->current_char = source[0];
+    lexer_set_error_hint(NULL);
 }
 
 static void skip_whitespace(struct Lexer *lexer) {
     while (lexer->current_char != '\0') {
+        const char next = lexer->source[lexer->position + 1];
         if (isspace((unsigned char)lexer->current_char)) {
             advance(lexer);
-        } else if (lexer->current_char == '/' && peek(lexer) == '/') {
+        } else if (lexer->current_char == '/' && next == '/') {
             while (lexer->current_char != '\n' && lexer->current_char != '\0') {
                 advance(lexer);
             }
@@ -82,7 +76,7 @@ static struct Token Read_Number(struct Lexer *lexer) {
     }
 
     if (lexer->current_char == '.' &&
-        isdigit((unsigned char)peek(lexer))) {
+        isdigit((unsigned char)lexer->source[lexer->position + 1])) {
         advance(lexer);
 
         while (isdigit((unsigned char)lexer->current_char)) {
@@ -156,6 +150,7 @@ static struct Token Read_IdentifierOrKeyword(struct Lexer *lexer) {
         {"return", TOKEN_KW_RETURN},
         {"for", TOKEN_KW_FOR},
         {"using", TOKEN_KW_USING},
+        {"export", TOKEN_KW_EXPORT},
         {"entity", TOKEN_KW_ENTITY},
         {"method", TOKEN_KW_METHOD},
         {"init", TOKEN_KW_INIT},
@@ -188,6 +183,7 @@ struct Token lexer_next(struct Lexer *lexer) {
     skip_whitespace(lexer);
 
     const char *start = lexer->source + lexer->position;
+    const char next = lexer->current_char ? lexer->source[lexer->position + 1] : '\0';
 
     if (lexer->current_char == '\0') {
         return make_token(TOKEN_EOF, start, 0, lexer->line);
@@ -198,7 +194,7 @@ struct Token lexer_next(struct Lexer *lexer) {
 
     switch (c) {
         case '=':
-            if (peek(lexer) == ':') {
+            if (next == ':') {
                 advance(lexer);
                 advance(lexer);
                 lexer_set_error_hint(NULL);
@@ -209,7 +205,7 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_error_token(start, 1, line);
 
         case '-':
-            if (peek(lexer) == '>') {
+            if (next == '>') {
                 advance(lexer);
                 advance(lexer);
                 return make_token(TOKEN_BLOCK_START, start, 2, line);
@@ -218,7 +214,7 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_token(TOKEN_MINUS, start, 1, line);
 
         case '<':
-            if (peek(lexer) == '-') {
+            if (next == '-') {
                 if (lexer->source[lexer->position + 2] == '-' && lexer->source[lexer->position + 3] == '>') {
                     advance(lexer); advance(lexer); advance(lexer); advance(lexer);
                     return make_token(TOKEN_SWAP, start, 4, line);
@@ -227,7 +223,7 @@ struct Token lexer_next(struct Lexer *lexer) {
                 advance(lexer);
                 return make_token(TOKEN_BLOCK_END, start, 2, line);
             }
-            if (peek(lexer) == '=') {
+            if (next == '=') {
                 advance(lexer);
                 advance(lexer);
                 return make_token(TOKEN_LESS_EQUAL, start, 2, line);
@@ -236,7 +232,7 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_token(TOKEN_LESS, start, 1, line);
 
         case '>':
-            if (peek(lexer) == '=') {
+            if (next == '=') {
                 advance(lexer);
                 advance(lexer);
                 return make_token(TOKEN_GREATER_EQUAL, start, 2, line);
@@ -245,7 +241,7 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_token(TOKEN_GREATER, start, 1, line);
 
         case '?':
-            if (peek(lexer) == '=') {
+            if (next == '=') {
                 advance(lexer);
                 advance(lexer);
                 lexer_set_error_hint(NULL);
@@ -256,7 +252,7 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_error_token(start, 1, line);
 
         case '!':
-            if (peek(lexer) == '?') {
+            if (next == '?') {
                 advance(lexer);
                 advance(lexer);
                 lexer_set_error_hint(NULL);
@@ -267,7 +263,7 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_error_token(start, 1, line);
 
         case '&':
-            if (peek(lexer) == '&') {
+            if (next == '&') {
                 advance(lexer);
                 advance(lexer);
                 return make_token(TOKEN_AND, start, 2, line);
@@ -276,7 +272,7 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_error_token(start, 1, line);
 
         case '|':
-            if (peek(lexer) == '|') {
+            if (next == '|') {
                 advance(lexer);
                 advance(lexer);
                 return make_token(TOKEN_OR, start, 2, line);

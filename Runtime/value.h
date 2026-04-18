@@ -46,6 +46,10 @@ typedef struct NativeWithCtx {
     void *ctx;
 } NativeWithCtx;
 
+typedef struct ModuleRecord {
+    void *ptr; /* opaque link back to module env if needed */
+} ModuleRecord;
+
 struct RuntimeValue {
     enum ValueType type;
     enum ValueType original_type;

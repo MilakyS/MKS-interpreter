@@ -1,0 +1,4 @@
+Writeln(Int("42"));
+Writeln(Int(" 12.5 "));
+Writeln(String(12.5));
+Writeln(String([1, "x"]));

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "../Runtime/value.h"
+#include "../Runtime/errors.h"
 #include "../env/env.h"
 
 GarbageCollector mks_gc;
@@ -51,13 +52,12 @@ static void gc_mark_stack_push(GCMarkStack *stack, GCObject *obj) {
     }
 
     if (stack->count >= stack->capacity) {
-        size_t new_capacity = (stack->capacity == 0) ? 256 : stack->capacity * 2;
+        size_t new_capacity = (stack->capacity == 0) ? 512 : stack->capacity * 2;
         GCObject **new_items =
             (GCObject **)realloc(stack->items, sizeof(GCObject *) * new_capacity);
 
         if (new_items == NULL) {
-            fprintf(stderr, "[MKS GC] Fatal: Out of memory growing mark stack\n");
-            exit(1);
+            runtime_error("Out of memory growing GC mark stack");
         }
 
         stack->items = new_items;
@@ -240,8 +240,7 @@ void gc_pause(void) {
 
 void gc_resume(void) {
     if (mks_gc.pause_count <= 0) {
-        fprintf(stderr, "[MKS GC] Fatal: gc_resume called without matching gc_pause\n");
-        exit(1);
+        runtime_error("gc_resume called without matching gc_pause");
     }
 
     mks_gc.pause_count--;
@@ -250,7 +249,7 @@ void gc_resume(void) {
 
 void gc_check(Environment *env) {
     if (mks_gc.pause_count == 0 && mks_gc.allocated_bytes >= mks_gc.threshold) {
-        GC_LOG("[GC] threshold hit: allocated=%zu threshold=%zu\n",
+        GC_LOG("[GC] threshold hit: allocated=%zu threshold=%zu (collect)\n",
                mks_gc.allocated_bytes, mks_gc.threshold);
         gc_collect(env, env);
     }
@@ -258,12 +257,42 @@ void gc_check(Environment *env) {
 
 void gc_push_root(RuntimeValue *val) {
     if (mks_gc.roots_count >= MAX_ROOTS) {
-        fprintf(stderr, "[MKS GC] Fatal: Root stack overflow!\n");
-        exit(1);
+        runtime_error("GC root stack overflow");
     }
 
     mks_gc.roots[mks_gc.roots_count++] = val;
     GC_LOG("[GC] push root ptr=%p roots_count=%d\n", (void *)val, mks_gc.roots_count);
+}
+
+int gc_value_needs_root(const RuntimeValue *val) {
+    if (val == NULL) {
+        return 0;
+    }
+
+    switch (val->type) {
+        case VAL_STRING:
+        case VAL_ARRAY:
+        case VAL_OBJECT:
+        case VAL_FUNC:
+        case VAL_BLUEPRINT:
+            return 1;
+        case VAL_RETURN: {
+            RuntimeValue unwrapped = *val;
+            unwrapped.type = unwrapped.original_type;
+            return gc_value_needs_root(&unwrapped);
+        }
+        default:
+            return 0;
+    }
+}
+
+int gc_push_root_if_needed(RuntimeValue *val) {
+    if (!gc_value_needs_root(val)) {
+        return 0;
+    }
+
+    gc_push_root(val);
+    return 1;
 }
 
 void gc_pop_root(void) {
@@ -275,8 +304,7 @@ void gc_pop_root(void) {
 
 void gc_push_env(Environment *env) {
     if (mks_gc.env_roots_count >= MAX_ENV_ROOTS) {
-        fprintf(stderr, "[MKS GC] Fatal: Env root stack overflow!\n");
-        exit(1);
+        runtime_error("GC env root stack overflow");
     }
 
     mks_gc.env_roots[mks_gc.env_roots_count++] = env;
@@ -293,14 +321,12 @@ void gc_pop_env(void) {
 
 void *gc_alloc(const size_t size, const GCObjectType type) {
     if (size < sizeof(GCObject)) {
-        fprintf(stderr, "[MKS GC] Fatal: gc_alloc size too small\n");
-        exit(1);
+        runtime_error("gc_alloc size too small");
     }
 
     GCObject *obj = (GCObject *)malloc(size);
     if (obj == NULL) {
-        fprintf(stderr, "[MKS GC] Fatal: Out of memory\n");
-        exit(1);
+        runtime_error("Out of memory in gc_alloc");
     }
 
     obj->type = type;

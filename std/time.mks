@@ -1,3 +1,0 @@
-fnc now() -> return now(); <-
-fnc timestamp() -> return timestamp(); <-
-fnc sleep(ms) -> return sleep(ms); <-

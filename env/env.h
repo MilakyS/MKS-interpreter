@@ -8,6 +8,8 @@
 #define ENV_MAX_LOAD_NUM 3
 #define ENV_MAX_LOAD_DEN 4
 
+extern size_t mks_env_shape_epoch;
+
 typedef struct EnvVar {
     char *name;
     unsigned int hash;
@@ -20,6 +22,7 @@ typedef struct Environment {
     EnvVar **buckets;
     size_t bucket_count;
     size_t entry_count;
+    size_t version;
     struct Environment *parent;
 } Environment;
 

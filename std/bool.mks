@@ -1,5 +1,5 @@
-var true =: 1;
-var false =: 0;
-fnc not(x) -> if (x ?= 0) -> return 1; <- return 0; <-
-fnc and(a,b) -> if (a ?= 0) -> return 0; <- if (b ?= 0) -> return 0; <- return 1; <-
-fnc or(a,b) -> if (a ?= 0 && b ?= 0) -> return 0; <- return 1; <-
+export var true =: 1;
+export var false =: 0;
+export fnc not(x) -> if (x ?= 0) -> return 1; <- return 0; <-
+export fnc and(a,b) -> if (a ?= 0) -> return 0; <- if (b ?= 0) -> return 0; <- return 1; <-
+export fnc or(a,b) -> if (a ?= 0 && b ?= 0) -> return 0; <- return 1; <-

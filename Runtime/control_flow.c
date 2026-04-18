@@ -3,6 +3,7 @@
 #include "../GC/gc.h"
 #include "errors.h"
 #include <stdlib.h>
+#include <string.h>
 
 static inline RuntimeValue unwrap(RuntimeValue v) {
     if (v.type == VAL_RETURN) {
@@ -14,8 +15,9 @@ static inline RuntimeValue unwrap(RuntimeValue v) {
 RuntimeValue eval_block(const ASTNode *node, Environment *env) {
     RuntimeValue last = make_int(0);
 
-    ASTNode **defer_stack = NULL;
-    int defer_count = 0, defer_cap = 0;
+    ASTNode *defer_inline[8];
+    ASTNode **defer_stack = defer_inline;
+    int defer_count = 0, defer_cap = 8;
 
     for (int i = 0; i < node->data.block.count; i++) {
         gc_check(env);
@@ -25,7 +27,16 @@ RuntimeValue eval_block(const ASTNode *node, Environment *env) {
         if (node->data.block.items[i]->type == AST_DEFER) {
             if (defer_count >= defer_cap) {
                 int new_cap = defer_cap == 0 ? 4 : defer_cap * 2;
-                defer_stack = realloc(defer_stack, sizeof(ASTNode *) * (size_t)new_cap);
+                ASTNode **new_stack = (defer_stack == defer_inline)
+                    ? (ASTNode **)malloc(sizeof(ASTNode *) * (size_t)new_cap)
+                    : (ASTNode **)realloc(defer_stack, sizeof(ASTNode *) * (size_t)new_cap);
+                if (new_stack == NULL) {
+                    runtime_error("Out of memory growing defer stack");
+                }
+                if (defer_stack == defer_inline) {
+                    memcpy(new_stack, defer_inline, sizeof(ASTNode *) * (size_t)defer_count);
+                }
+                defer_stack = new_stack;
                 defer_cap = new_cap;
             }
             defer_stack[defer_count++] = node->data.block.items[i]->data.defer_stmt.body;
@@ -34,7 +45,7 @@ RuntimeValue eval_block(const ASTNode *node, Environment *env) {
             for (int d = defer_count - 1; d >= 0; d--) {
                 eval(defer_stack[d], env);
             }
-            free(defer_stack);
+            if (defer_stack != defer_inline) free(defer_stack);
             return last;
         }
     }
@@ -42,7 +53,7 @@ RuntimeValue eval_block(const ASTNode *node, Environment *env) {
     for (int d = defer_count - 1; d >= 0; d--) {
         eval(defer_stack[d], env);
     }
-    free(defer_stack);
+    if (defer_stack != defer_inline) free(defer_stack);
     return last;
 }
 

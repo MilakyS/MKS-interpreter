@@ -148,6 +148,14 @@ static RuntimeValue concat_values_as_string(const RuntimeValue left_val,
     const size_t len_l = value_string_length(left_val, s_l);
     const size_t len_r = value_string_length(right_val, s_r);
 
+    /* Быстрый путь: одна из строк пустая */
+    if (len_l == 0 && left_val.type == VAL_STRING) {
+        return right_val.type == VAL_STRING ? right_val : make_string_len(s_r, len_r);
+    }
+    if (len_r == 0 && right_val.type == VAL_STRING) {
+        return left_val.type == VAL_STRING ? left_val : make_string_len(s_l, len_l);
+    }
+
     char *res_str = (char *)malloc(len_l + len_r + 1);
     if (res_str == NULL) {
         fprintf(stderr, "Runtime Error: Out of memory in string concatenation\n");
@@ -166,24 +174,28 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
     RuntimeValue result = make_null();
 
     RuntimeValue left_val = unwrap(eval(node->data.binop.left, env));
-    gc_push_root(&left_val);
+    const int left_rooted = gc_push_root_if_needed(&left_val);
 
     if (op == TOKEN_AND) {
         if (!is_truthy(left_val)) {
             result = make_bool(0);
-            gc_pop_root();
+            if (left_rooted) {
+                gc_pop_root();
+            }
             return result;
         }
     } else if (op == TOKEN_OR) {
         if (is_truthy(left_val)) {
             result = make_bool(1);
-            gc_pop_root();
+            if (left_rooted) {
+                gc_pop_root();
+            }
             return result;
         }
     }
 
     RuntimeValue right_val = unwrap(eval(node->data.binop.right, env));
-    gc_push_root(&right_val);
+    const int right_rooted = gc_push_root_if_needed(&right_val);
 
     if (left_val.type == VAL_STRING && right_val.type == VAL_STRING) {
         const char *s_l = left_val.data.managed_string->data;
@@ -191,23 +203,23 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
 
         if (op == TOKEN_EQ) {
             result = make_bool(strcmp(s_l, s_r) == 0);
-            gc_pop_root();
-            gc_pop_root();
+            if (right_rooted) gc_pop_root();
+            if (left_rooted) gc_pop_root();
             return result;
         }
 
         if (op == TOKEN_NOT_EQ) {
             result = make_bool(strcmp(s_l, s_r) != 0);
-            gc_pop_root();
-            gc_pop_root();
+            if (right_rooted) gc_pop_root();
+            if (left_rooted) gc_pop_root();
             return result;
         }
     }
 
     if (op == TOKEN_PLUS && (left_val.type == VAL_STRING || right_val.type == VAL_STRING)) {
         result = concat_values_as_string(left_val, right_val);
-        gc_pop_root();
-        gc_pop_root();
+        if (right_rooted) gc_pop_root();
+        if (left_rooted) gc_pop_root();
         return result;
     }
 
@@ -218,8 +230,8 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
                 : (is_truthy(left_val) || is_truthy(right_val))
         );
 
-        gc_pop_root();
-        gc_pop_root();
+        if (right_rooted) gc_pop_root();
+        if (left_rooted) gc_pop_root();
         return result;
     }
 
@@ -242,8 +254,8 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
 
             case TOKEN_SLASH:
                 if (r == 0.0) {
-                    gc_pop_root();
-                    gc_pop_root();
+                    if (right_rooted) gc_pop_root();
+                    if (left_rooted) gc_pop_root();
                     fprintf(stderr, "Runtime Error: division by zero\n");
                     exit(1);
                 }
@@ -252,8 +264,8 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
 
             case TOKEN_MOD:
                 if (r == 0.0) {
-                    gc_pop_root();
-                    gc_pop_root();
+                    if (right_rooted) gc_pop_root();
+                    if (left_rooted) gc_pop_root();
                     fprintf(stderr, "Runtime Error: modulo by zero\n");
                     exit(1);
                 }
@@ -285,18 +297,18 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
                 break;
 
             default:
-                gc_pop_root();
-                gc_pop_root();
+                if (right_rooted) gc_pop_root();
+                if (left_rooted) gc_pop_root();
                 runtime_type_error_binop(op, left_val, right_val);
                 return make_null();
         }
 
-        gc_pop_root();
-        gc_pop_root();
+        if (right_rooted) gc_pop_root();
+        if (left_rooted) gc_pop_root();
         return result;
     }
-    gc_pop_root();
-    gc_pop_root();
+    if (right_rooted) gc_pop_root();
+    if (left_rooted) gc_pop_root();
     runtime_type_error_binop(op, left_val, right_val);
     return make_null();
 }

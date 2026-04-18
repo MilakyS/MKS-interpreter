@@ -20,6 +20,9 @@ ASTNode *create_ast_ident(char *name, unsigned int id_hash, int line) {
     ASTNode *node = create_ast(AST_IDENTIFIER, line);
     node->data.identifier.name = name;
     node->data.identifier.id_hash = id_hash;
+    node->data.identifier.cached_entry = NULL;
+    node->data.identifier.cached_env = NULL;
+    node->data.identifier.cached_env_version = 0;
     return node;
 }
 
@@ -36,6 +39,9 @@ ASTNode *create_ast_assign(char *name, unsigned int id_hash, ASTNode *value, int
     node->data.assign.name = name;
     node->data.assign.id_hash = id_hash;
     node->data.assign.value = value;
+    node->data.assign.cached_entry = NULL;
+    node->data.assign.cached_env = NULL;
+    node->data.assign.cached_env_version = 0;
     return node;
 }
 
@@ -220,10 +226,19 @@ ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int 
     return node;
 }
 
-ASTNode *create_ast_using(char *path, char *alias, int line) {
+ASTNode *create_ast_using(char *path, char *alias, bool is_legacy_path, bool star_import, int line) {
     ASTNode *node = create_ast(AST_USING, line);
     node->data.using_stmt.path = path;
     node->data.using_stmt.alias = alias;
+    node->data.using_stmt.is_legacy_path = is_legacy_path;
+    node->data.using_stmt.star_import = star_import;
+    return node;
+}
+
+ASTNode *create_ast_export(ASTNode *decl, char *name_override, int line) {
+    ASTNode *node = create_ast(AST_EXPORT, line);
+    node->data.export_stmt.decl = decl;
+    node->data.export_stmt.name_override = name_override;
     return node;
 }
 
@@ -423,6 +438,11 @@ void delete_ast_node(ASTNode *node) {
         case AST_USING:
             free(node->data.using_stmt.path);
             free(node->data.using_stmt.alias);
+            break;
+
+        case AST_EXPORT:
+            delete_ast_node(node->data.export_stmt.decl);
+            free(node->data.export_stmt.name_override);
             break;
 
         case AST_DEFER:

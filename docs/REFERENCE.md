@@ -89,6 +89,41 @@ Write(x, y);
 Writeln(x, y);   // newline
 ```
 
+## Built-in Input
+```mks
+var line =: Read();             // read full line
+var name =: Read("Name: ");     // print prompt, then read full line
+var word =: Read(0);            // read first word only
+```
+
+`Read` returns a string. The trailing `\n` or `\r\n` is removed. If standard input reaches EOF, it returns `""`.
+
+When the first argument is a string, it is printed to stdout and flushed before reading:
+
+```mks
+var age =: Read("Age: ");
+```
+
+When the first argument is integer `0`, only the first whitespace-separated word is returned:
+
+```mks
+// input: hello world
+Writeln(Read(0)); // hello
+```
+
+The input buffer is limited to 8191 characters per call.
+
+## Built-in Conversions
+```mks
+var n =: Int("42");
+var text =: String([1, "x"]);
+```
+
+`Int(value)` accepts numbers, strings, and `null`. Strings are parsed as numeric
+text and must not contain trailing non-whitespace characters.
+
+`String(value)` returns the same text that MKS would print for the value.
+
 ## Errors
 Errors report `file:line` plus a hint. Common fixes: add missing `;`, close `<-`, fix keyword typos, check types/undefined vars.
 

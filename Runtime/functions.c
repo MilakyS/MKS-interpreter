@@ -33,20 +33,23 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
     const int arg_count = node->data.func_call.arg_count;
 
     RuntimeValue callable = env_get_fast(env, name, hash);
-    gc_push_root(&callable);
+    int pushed_roots = 0;
+    pushed_roots += gc_push_root_if_needed(&callable);
 
     RuntimeValue args_stack[32];
     RuntimeValue *args = (arg_count > 32)
         ? (RuntimeValue *)malloc((size_t)arg_count * sizeof(RuntimeValue))
         : args_stack;
     if (args == NULL) {
-        gc_pop_root();
+        while (pushed_roots-- > 0) {
+            gc_pop_root();
+        }
         runtime_error("Out of memory in function call");
     }
 
     for (int i = 0; i < arg_count; i++) {
         args[i] = unwrap(eval(node->data.func_call.args[i], env));
-        gc_push_root(&args[i]);
+        pushed_roots += gc_push_root_if_needed(&args[i]);
     }
 
     RuntimeValue result = make_null();
@@ -60,7 +63,12 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
         const int param_count = decl->data.func_decl.param_count;
 
         if (arg_count != param_count) {
-            gc_pop_root();
+            while (pushed_roots-- > 0) {
+                gc_pop_root();
+            }
+            if (arg_count > 32) {
+                free(args);
+            }
             runtime_error("Function '%s' expects %d arguments, got %d", name, param_count, arg_count);
         }
 
@@ -75,11 +83,16 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
 
         gc_pop_env();
     } else {
-        gc_pop_root();
+        while (pushed_roots-- > 0) {
+            gc_pop_root();
+        }
+        if (arg_count > 32) {
+            free(args);
+        }
         runtime_error("'%s' is not a function.", name);
     }
 
-    for (int i = 0; i < arg_count; i++) {
+    while (pushed_roots-- > 0) {
         gc_pop_root();
     }
 
@@ -87,7 +100,6 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
         free(args);
     }
 
-    gc_pop_root();
     return result;
 }
 

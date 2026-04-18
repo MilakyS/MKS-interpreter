@@ -1,0 +1,5 @@
+using "../fixtures/module_restore/dir/a.mks" as a;
+using "../fixtures/module_restore/b.mks" as b;
+
+Writeln(a.a_value);
+Writeln(b.b_value);

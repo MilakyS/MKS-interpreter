@@ -91,7 +91,57 @@ Writeln(square(5));
 ```
 Resolution: current file dir → CWD → installed std path. Each module executes once.
 
-## 11. Tests
+## 11. Input with Read
+`Read` is a built-in function for reading from standard input. It always returns a string.
+
+```mks
+var name =: Read("Name: ");
+Writeln("Hello, ", name);
+```
+
+If the first argument is a string, MKS prints it before waiting for input. This is useful for prompts:
+
+```mks
+var answer =: Read("Type something: ");
+```
+
+`Read()` reads one full line and removes the trailing newline:
+
+```mks
+var line =: Read();
+Writeln(line);
+```
+
+`Read(0)` reads the same line, but returns only the first whitespace-separated word:
+
+```mks
+var word =: Read(0);
+Writeln(word);
+```
+
+Examples:
+- input `hello world` with `Read()` returns `"hello world"`
+- input `hello world` with `Read(0)` returns `"hello"`
+- end-of-file returns an empty string `""`
+
+The input buffer is limited to 8191 characters per call.
+
+## 12. Conversions
+Use `Int(value)` for numeric conversion and `String(value)` for printable text conversion.
+
+```mks
+var age_text =: "42";
+var age =: Int(age_text);
+
+Writeln(String(age + 1));       // 43
+Writeln(String([1, "x"]));      // [1, x]
+```
+
+`Int` accepts numbers, strings, and `null`. Invalid strings fail with a conversion diagnostic.
+
+`String` accepts any runtime value.
+
+## 13. Tests
 ```mks
 test "math" ->
     expect(1 + 1 ?= 2);
@@ -99,19 +149,18 @@ test "math" ->
 ```
 Run all project tests: `./tests.sh`.
 
-## 12. Errors
+## 13. Errors
 Runtime and parser errors show `file:line` plus a hint. Common fixes:
 - missing `;`
 - missing `<-` block end
 - keyword/identifier typo
 - using a value of the wrong type
 
-## 13. Tips for speed
+## 14. Tips for speed
 - Avoid `var` declarations inside tight loops; declare outside and reuse.
 - Use `<-->` for swapping instead of a temp var.
 - Keep sanitizer builds off for timing.
 
-## 14. Limits
+## 15. Limits
 - Recursion depth guard: 10,000.
 - Not production-safe; APIs may change.
-

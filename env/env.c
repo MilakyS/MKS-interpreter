@@ -7,7 +7,9 @@
 #include "../GC/gc.h"
 #include "../Utils/hash.h"
 #include "../Runtime/errors.h"
-#include "../Runtime/watch.h"
+#include "../std/watch.h"
+
+size_t mks_env_shape_epoch = 0;
 
 static char *env_strdup(const char *src) {
     if (src == NULL) {
@@ -17,8 +19,7 @@ static char *env_strdup(const char *src) {
     const size_t len = strlen(src);
     char *copy = (char *)malloc(len + 1);
     if (copy == NULL) {
-        fprintf(stderr, "[MKS ENV] Fatal: Out of memory duplicating variable name\n");
-        exit(1);
+        runtime_error("Out of memory duplicating variable name");
     }
 
     memcpy(copy, src, len + 1);
@@ -35,22 +36,19 @@ static inline size_t env_bucket_index(const unsigned int hash, const size_t buck
 
 static EnvVar **env_alloc_buckets(const size_t bucket_count) {
     if (!env_is_power_of_two(bucket_count)) {
-        fprintf(stderr, "[MKS ENV] Fatal: bucket_count must be a power of two\n");
-        exit(1);
+        runtime_error("env bucket_count must be a power of two");
     }
 
     EnvVar **buckets = (EnvVar **)calloc(bucket_count, sizeof(EnvVar *));
     if (buckets == NULL) {
-        fprintf(stderr, "[MKS ENV] Fatal: Out of memory allocating env buckets\n");
-        exit(1);
+        runtime_error("Out of memory allocating env buckets");
     }
     return buckets;
 }
 
 static void env_resize(Environment *env, const size_t new_bucket_count) {
     if (!env_is_power_of_two(new_bucket_count)) {
-        fprintf(stderr, "[MKS ENV] Fatal: new_bucket_count must be a power of two\n");
-        exit(1);
+        runtime_error("env new_bucket_count must be a power of two");
     }
 
     EnvVar **new_buckets = env_alloc_buckets(new_bucket_count);
@@ -92,6 +90,7 @@ static void env_maybe_grow(Environment *env) {
 void env_init(Environment *env) {
     env->bucket_count = ENV_INITIAL_BUCKET_COUNT;
     env->entry_count = 0;
+    env->version = 0;
     env->buckets = env_alloc_buckets(env->bucket_count);
     env->parent = NULL;
 }
@@ -124,7 +123,9 @@ void env_set_fast(Environment *env, const char *name, const unsigned int h, Runt
     while (current != NULL) {
         if (current->hash == h && strcmp(current->name, name) == 0) {
             current->value = value;
-            watch_trigger(name, h, env);
+            if (watch_has_any()) {
+                watch_trigger(name, h, env, &value);
+            }
             return;
         }
         current = current->next;
@@ -136,8 +137,7 @@ void env_set_fast(Environment *env, const char *name, const unsigned int h, Runt
 
     EnvVar *new_var = malloc(sizeof(EnvVar));
     if (new_var == NULL) {
-        fprintf(stderr, "[MKS ENV] Fatal: Out of memory allocating EnvVar\n");
-        exit(1);
+        runtime_error("Out of memory allocating EnvVar");
     }
 
     new_var->name = env_strdup(name);
@@ -147,6 +147,7 @@ void env_set_fast(Environment *env, const char *name, const unsigned int h, Runt
     env->buckets[final_index] = new_var;
 
     env->entry_count++;
+    env->version = ++mks_env_shape_epoch;
 }
 
 void env_set(Environment *env, const char *name, const RuntimeValue value) {
@@ -236,7 +237,9 @@ void env_update_fast(Environment *env, const char *name, unsigned int h, Runtime
             while (current != NULL) {
                 if (current->hash == h && strcmp(current->name, name) == 0) {
                     current->value = value;
-                    watch_trigger(name, h, env);
+                    if (watch_has_any()) {
+                        watch_trigger(name, h, env, &value);
+                    }
                     return;
                 }
                 current = current->next;

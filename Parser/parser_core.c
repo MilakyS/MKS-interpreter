@@ -4,6 +4,8 @@
 #include <string.h>
 #include <stdbool.h>
 
+#include "../Runtime/errors.h"
+
 #define PARSER_SNIPPET_MAX 64
 
 char *mks_strndup(const char *s, size_t n) {
@@ -47,30 +49,156 @@ static void make_printable_snippet(char *dst, size_t dst_size, const char *src, 
     dst[j] = '\0';
 }
 
+static const char *token_type_name(enum TokenType type) {
+    switch (type) {
+        case TOKEN_EOF: return "end of file";
+        case TOKEN_ERROR: return "invalid token";
+        case TOKEN_IDENTIFIER: return "identifier";
+        case TOKEN_TYPE_NUMBER: return "number";
+        case TOKEN_TYPE_STRING: return "string";
+        case TOKEN_ASSIGN: return "=:";
+        case TOKEN_PLUS: return "+";
+        case TOKEN_MINUS: return "-";
+        case TOKEN_STAR: return "*";
+        case TOKEN_SLASH: return "/";
+        case TOKEN_MOD: return "%";
+        case TOKEN_INCREMENT: return "++";
+        case TOKEN_BLOCK_START: return "->";
+        case TOKEN_BLOCK_END: return "<-";
+        case TOKEN_SEMICOLON: return ";";
+        case TOKEN_LPAREL: return "(";
+        case TOKEN_COMMA: return ",";
+        case TOKEN_RPAREL: return ")";
+        case TOKEN_EQ: return "==";
+        case TOKEN_NOT_EQ: return "!=";
+        case TOKEN_LESS: return "<";
+        case TOKEN_GREATER: return ">";
+        case TOKEN_GREATER_EQUAL: return ">=";
+        case TOKEN_LESS_EQUAL: return "<=";
+        case TOKEN_AND: return "&&";
+        case TOKEN_OR: return "||";
+        case TOKEN_LBRACKET: return "[";
+        case TOKEN_RBRACKET: return "]";
+        case TOKEN_DOT: return ".";
+        case TOKEN_KW_VAR: return "var";
+        case TOKEN_KW_WRITELN: return "Writeln";
+        case TOKEN_KW_WRITE: return "Write";
+        case TOKEN_KW_IF: return "if";
+        case TOKEN_KW_ELSE: return "else";
+        case TOKEN_KW_WHILE: return "while";
+        case TOKEN_KW_FNC: return "fnc";
+        case TOKEN_KW_CALL: return "call";
+        case TOKEN_KW_RETURN: return "return";
+        case TOKEN_KW_FOR: return "for";
+        case TOKEN_KW_USING: return "using";
+        case TOKEN_KW_EXPORT: return "export";
+        case TOKEN_SWAP: return "<=>";
+        case TOKEN_KW_ENTITY: return "entity";
+        case TOKEN_KW_METHOD: return "method";
+        case TOKEN_KW_INIT: return "init";
+        case TOKEN_KW_EXTEND: return "extend";
+        case TOKEN_KW_DEFER: return "defer";
+        case TOKEN_KW_WATCH: return "watch";
+        case TOKEN_KW_ON: return "on";
+        case TOKEN_KW_CHANGE: return "change";
+        case TOKEN_KW_BREAK: return "break";
+        case TOKEN_KW_CONTINUE: return "continue";
+        case TOKEN_KW_REPEAT: return "repeat";
+        case TOKEN_KW_IN: return "in";
+    }
+    return "unknown token";
+}
+
+static int token_column(Parser *parser) {
+    if (parser == NULL || parser->lexer == NULL || parser->current_token.start == NULL) {
+        return 1;
+    }
+
+    const char *line_start = parser->current_token.start;
+    while (line_start > parser->lexer->source && line_start[-1] != '\n') {
+        line_start--;
+    }
+
+    return (int)(parser->current_token.start - line_start) + 1;
+}
+
+static MksErrorCode parser_error_code_for(Parser *parser, const char *message) {
+    const enum TokenType type = parser != NULL ? parser->current_token.type : TOKEN_ERROR;
+
+    if (type == TOKEN_ERROR) {
+        return MKS_ERR_LEXER_INVALID_TOKEN;
+    }
+    if (message != NULL && strstr(message, "Unexpected token in expression") != NULL) {
+        return MKS_ERR_SYNTAX_UNEXPECTED_TOKEN;
+    }
+    if (message != NULL && strstr(message, "Invalid assignment target") != NULL) {
+        return MKS_ERR_SYNTAX_INVALID_ASSIGN;
+    }
+    if (message != NULL && strstr(message, "Expected") != NULL) {
+        return MKS_ERR_SYNTAX_EXPECTED_TOKEN;
+    }
+    return MKS_ERR_SYNTAX_GENERIC;
+}
+
 static void parser_vpanic(Parser *parser, const char *prefix, const char *message) {
     const char *safe_prefix = (prefix != NULL) ? prefix : "MKS Parser Error";
     const char *safe_message = (message != NULL) ? message : "Unknown parser error";
 
     if (parser != NULL) {
+        const int column = token_column(parser);
+        const int length = parser->current_token.length > 0 ? parser->current_token.length : 1;
+        const MksDiagnosticInfo *info = mks_diagnostic_info(parser_error_code_for(parser, safe_message));
+        fprintf(stderr, "\n[%s]\n", safe_prefix);
+        fprintf(stderr, "code: %s\n", info->code);
+        fprintf(stderr, "kind: %s\n", info->kind);
+        fprintf(stderr, "error: %s\n", safe_message);
         fprintf(stderr,
-                "\n\033[1;31m[%s]\033[0m\n"
-                "Line %d: %s\n",
-                safe_prefix,
-                parser->current_token.line,
-                safe_message);
+                "found: %s",
+                token_type_name(parser->current_token.type));
+        if (parser->current_token.length > 0 && parser->current_token.start != NULL) {
+            char snippet[PARSER_SNIPPET_MAX + 1];
+            int len = parser->current_token.length;
+            if (len > PARSER_SNIPPET_MAX) {
+                len = PARSER_SNIPPET_MAX;
+            }
+            make_printable_snippet(snippet, sizeof(snippet), parser->current_token.start, len);
+            fprintf(stderr, " '%s'", snippet);
+        }
+        fprintf(stderr, "\n");
+        fprintf(stderr, "reason: %s\n", info->reason);
+        runtime_print_source_context(runtime_current_file(),
+                                     parser->lexer != NULL ? parser->lexer->source : runtime_current_source(),
+                                     parser->current_token.line,
+                                     column,
+                                     length);
         const char *hint = lexer_last_error_hint();
         if (hint != NULL) {
-            fprintf(stderr, "Hint: %s\n", hint);
+            fprintf(stderr, "help: %s\n", hint);
         } else {
-            fprintf(stderr, "Hint: check syntax — missing ';', closing '<-' block, or a keyword typo.\n");
+            fprintf(stderr, "help: %s\n", info->help);
+        }
+        if (info->example != NULL) {
+            fprintf(stderr, "example: %s\n", info->example);
+        }
+        if (info->next != NULL) {
+            fprintf(stderr, "next: %s\n", info->next);
         }
     } else {
+        const MksDiagnosticInfo *info = mks_diagnostic_info(MKS_ERR_INTERNAL_PARSER);
         fprintf(stderr,
-                "\n\033[1;31m[%s]\033[0m\n"
-                "Line ?: %s\n",
+                "\n[%s]\n"
+                "code: %s\n"
+                "kind: %s\n"
+                "error: %s\n",
                 safe_prefix,
+                info->code,
+                info->kind,
                 safe_message);
-        fprintf(stderr, "Hint: check overall file/block structure\n");
+        fprintf(stderr, "reason: %s\n", info->reason);
+        fprintf(stderr, "help: %s\n", info->help);
+        if (info->next != NULL) {
+            fprintf(stderr, "next: %s\n", info->next);
+        }
     }
 
     exit(1);
@@ -126,9 +254,9 @@ void parser_error_expected(Parser *parser, enum TokenType expected_type) {
     snprintf(
         buffer,
         sizeof(buffer),
-        "Unexpected token (expected %d, got %d)",
-        expected_type,
-        parser->current_token.type
+        "Expected %s, got %s",
+        token_type_name(expected_type),
+        token_type_name(parser->current_token.type)
     );
 
     parser_vpanic(parser, "MKS Syntax Error", buffer);

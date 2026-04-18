@@ -1,18 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "parser.h"
 #include <string.h>
 
 static ASTNode* parser_parse_using(Parser *parser);
+static ASTNode* parser_parse_export(Parser *parser);
+static ASTNode* parser_parse_func_decl(Parser *parser);
+static ASTNode* parser_parse_entity(Parser *parser);
+static ASTNode* parser_parse_extend(Parser *parser);
+
+/* --- */
 static ASTNode* parser_parse_var_decl(Parser *parser);
 static ASTNode* parser_parse_if(Parser *parser);
 static ASTNode* parser_parse_while(Parser *parser);
 static ASTNode* parser_parse_for(Parser *parser);
 static ASTNode* parser_parse_output(Parser *parser, bool newline);
-static ASTNode* parser_parse_func_decl(Parser *parser);
-static ASTNode* parser_parse_entity(Parser *parser);
-static ASTNode* parser_parse_extend(Parser *parser);
 static ASTNode* parser_parse_return(Parser *parser);
 static ASTNode* parser_parse_test(Parser *parser);
 static ASTNode* parser_parse_defer(Parser *parser);
@@ -52,6 +56,9 @@ ASTNode* parser_parse_statement(Parser *parser) {
             break;
         case TOKEN_KW_USING:
             return parser_parse_using(parser);
+
+        case TOKEN_KW_EXPORT:
+            return parser_parse_export(parser);
 
         case TOKEN_KW_VAR:
             return parser_parse_var_decl(parser);
@@ -194,20 +201,53 @@ ASTNode* parser_parse_program(Parser *parser) {
 
 static ASTNode* parser_parse_using(Parser *parser) {
     const int line = parser->current_token.line;
-    char *path = NULL;
-    char *alias = NULL;
-
     parser_eat(parser, TOKEN_KW_USING);
 
-    if (parser->current_token.type != TOKEN_TYPE_STRING) {
-        parser_error(parser, "Expected string path after 'using'");
-    }
+    bool is_legacy = false;
+    bool star = false;
+    char *module_id = NULL;
+    char *alias = NULL;
 
-    path = mks_strndup(
-        parser->current_token.start,
-        (size_t)parser->current_token.length
-    );
-    parser_eat(parser, TOKEN_TYPE_STRING);
+    if (parser->current_token.type == TOKEN_TYPE_STRING) {
+        /* legacy path form */
+        is_legacy = true;
+        module_id = mks_strndup(parser->current_token.start, (size_t)parser->current_token.length);
+        parser_eat(parser, TOKEN_TYPE_STRING);
+    } else {
+        /* parse dotted identifier: ident(.ident)* optionally ending with .* */
+        if (parser->current_token.type != TOKEN_IDENTIFIER) {
+            parser_error(parser, "Expected module id after 'using'");
+        }
+
+        /* build module_id string */
+        size_t buf_cap = 64; size_t len = 0;
+        module_id = parser_xmalloc(buf_cap);
+        module_id[0] = '\0';
+
+        while (true) {
+            const char *start = parser->current_token.start;
+            int l = parser->current_token.length;
+            if (len + (size_t)l + 2 >= buf_cap) {
+                buf_cap *= 2;
+                module_id = parser_xrealloc(module_id, buf_cap);
+            }
+            memcpy(module_id + len, start, (size_t)l);
+            len += (size_t)l;
+            module_id[len] = '\0';
+            parser_eat(parser, TOKEN_IDENTIFIER);
+
+            if (parser->current_token.type == TOKEN_DOT) {
+                parser_eat(parser, TOKEN_DOT);
+                module_id[len++] = '.';
+                module_id[len] = '\0';
+                continue;
+            } else if (parser->current_token.type == TOKEN_STAR) {
+                /* using foo.bar.* is not supported; reject early */
+                parser_error(parser, "Star-import is not supported. Use namespace import only.");
+            }
+            break;
+        }
+    }
 
     if (parser_match_identifier(parser, "as")) {
         unsigned int ignored_hash = 0;
@@ -215,7 +255,27 @@ static ASTNode* parser_parse_using(Parser *parser) {
     }
 
     parser_eat(parser, TOKEN_SEMICOLON);
-    return create_ast_using(path, alias, line);
+    return create_ast_using(module_id, alias, is_legacy, star, line);
+}
+
+static ASTNode* parser_parse_export(Parser *parser) {
+    const int line = parser->current_token.line;
+    parser_eat(parser, TOKEN_KW_EXPORT);
+
+    ASTNode *decl = NULL;
+    char *name_override = NULL;
+
+    if (parser->current_token.type == TOKEN_KW_FNC) {
+        decl = parser_parse_func_decl(parser);
+    } else if (parser->current_token.type == TOKEN_KW_VAR) {
+        decl = parser_parse_var_decl(parser);
+    } else if (parser->current_token.type == TOKEN_KW_ENTITY) {
+        decl = parser_parse_entity(parser);
+    } else {
+        parser_error(parser, "Expected fnc/var/entity after export");
+    }
+
+    return create_ast_export(decl, name_override, line);
 }
 
 static ASTNode* parser_parse_var_decl(Parser *parser) {

@@ -2,6 +2,10 @@
 #define MKS_AST_H
 
 #include <stdbool.h>
+#include <stddef.h>
+
+struct Environment;
+struct EnvVar;
 
 typedef enum ASTNodeType {
     AST_BINOP,
@@ -35,6 +39,7 @@ typedef enum ASTNodeType {
     AST_BREAK,
     AST_CONTINUE,
     AST_REPEAT,
+    AST_EXPORT,
 } ASTNodeType;
 
 typedef struct ASTNode {
@@ -48,6 +53,9 @@ typedef struct ASTNode {
         struct {
             char *name;
             unsigned int id_hash;
+            struct EnvVar *cached_entry;
+            const struct Environment *cached_env;
+            size_t cached_env_version;
         } identifier;
 
         struct {
@@ -60,6 +68,9 @@ typedef struct ASTNode {
             char *name;
             unsigned int id_hash;
             struct ASTNode *value;
+            struct EnvVar *cached_entry;
+            const struct Environment *cached_env;
+            size_t cached_env_version;
         } assign;
 
         struct {
@@ -192,7 +203,14 @@ typedef struct ASTNode {
         struct {
             char *path;
             char *alias;
+            bool is_legacy_path;
+            bool star_import;
         } using_stmt;
+
+        struct {
+            struct ASTNode *decl; /* wrapped declaration */
+            char *name_override; /* optional explicit name for export var if needed */
+        } export_stmt;
 
         struct {
             bool has_iterator;
@@ -237,7 +255,7 @@ ASTNode *create_ast_func_decl(char *name, unsigned int name_hash, char **params,
 ASTNode *create_ast_func_call(char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line);
 ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line);
 
-ASTNode *create_ast_using(char *path, char *alias, int line);
+ASTNode *create_ast_using(char *path, char *alias, bool is_legacy_path, bool star_import, int line);
 ASTNode *create_ast_output(ASTNode **args, int count, bool is_newline, int line);
 
 ASTNode *create_ast_entity(char *name, unsigned int hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *init_body, ASTNode **methods, int method_count, int line);
@@ -248,6 +266,7 @@ ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int 
 ASTNode *create_ast_break(int line);
 ASTNode *create_ast_continue(int line);
 ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, ASTNode *count_expr, ASTNode *body, int line);
+ASTNode *create_ast_export(ASTNode *decl, char *name_override, int line);
 
 
 void delete_ast_node(ASTNode *node);

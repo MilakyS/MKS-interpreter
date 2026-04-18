@@ -15,8 +15,9 @@
 #include "../Runtime/module.h"
 #include "../Runtime/errors.h"
 #include "../Runtime/extension.h"
-#include "../Runtime/watch.h"
+#include "../std/watch.h"
 #include "../Runtime/profiler.h"
+#include "../Utils/hash.h"
 
 static inline RuntimeValue unwrap_return(RuntimeValue value) {
     if (value.type == VAL_RETURN) {
@@ -32,6 +33,99 @@ static RuntimeValue eval_test(const ASTNode *node, Environment *env);
 static RuntimeValue eval_defer(const ASTNode *node, Environment *env);
 static RuntimeValue eval_watch(const ASTNode *node, Environment *env);
 static RuntimeValue eval_on_change(const ASTNode *node, Environment *env);
+
+static int ast_env_cache_valid(const Environment *env,
+                               const Environment *cached_env,
+                               size_t cached_env_version) {
+    return env != NULL && env == cached_env && cached_env_version == mks_env_shape_epoch;
+}
+
+static RuntimeValue eval_identifier_cached(const ASTNode *node, Environment *env) {
+    if (ast_env_cache_valid(env,
+                            node->data.identifier.cached_env,
+                            node->data.identifier.cached_env_version) &&
+        node->data.identifier.cached_entry != NULL) {
+        return node->data.identifier.cached_entry->value;
+    }
+
+    EnvVar *entry = env_get_entry(env,
+                                  node->data.identifier.name,
+                                  node->data.identifier.id_hash);
+    if (entry == NULL) {
+        runtime_error("Undefined variable '%s'", node->data.identifier.name);
+    }
+
+    ASTNode *mutable_node = (ASTNode *)node;
+    mutable_node->data.identifier.cached_entry = entry;
+    mutable_node->data.identifier.cached_env = env;
+    mutable_node->data.identifier.cached_env_version = mks_env_shape_epoch;
+
+    return entry->value;
+}
+
+static void assign_cached(const ASTNode *node, Environment *env, RuntimeValue value) {
+    if (value.type == VAL_RETURN) {
+        value.type = value.original_type;
+    }
+
+    EnvVar *entry = NULL;
+    if (ast_env_cache_valid(env,
+                            node->data.assign.cached_env,
+                            node->data.assign.cached_env_version)) {
+        entry = node->data.assign.cached_entry;
+    }
+
+    if (entry == NULL) {
+        entry = env_get_entry(env, node->data.assign.name, node->data.assign.id_hash);
+        if (entry == NULL) {
+            runtime_error("Variable '%s' is not defined!", node->data.assign.name);
+        }
+
+        ASTNode *mutable_node = (ASTNode *)node;
+        mutable_node->data.assign.cached_entry = entry;
+        mutable_node->data.assign.cached_env = env;
+        mutable_node->data.assign.cached_env_version = mks_env_shape_epoch;
+    }
+
+    entry->value = value;
+    if (watch_has_any()) {
+        watch_trigger(node->data.assign.name, node->data.assign.id_hash, env, &value);
+    }
+}
+
+static RuntimeValue eval_export(const ASTNode *node, Environment *env) {
+    RuntimeValue res = eval(node->data.export_stmt.decl, env);
+    const ASTNode *decl = node->data.export_stmt.decl;
+
+    const char *name = NULL; unsigned int hash = 0;
+    switch (decl->type) {
+        case AST_FUNC_DECL:
+            name = decl->data.func_decl.name;
+            hash = decl->data.func_decl.name_hash;
+            break;
+        case AST_VAR_DECL:
+            name = decl->data.var_decl.name;
+            hash = decl->data.var_decl.id_hash;
+            break;
+        case AST_ENTITY:
+            name = decl->data.entity.name;
+            hash = decl->data.entity.name_hash;
+            break;
+        default:
+            runtime_error("Unsupported export node type");
+    }
+
+    RuntimeValue exports_val;
+    if (!env_try_get(env, "exports", get_hash("exports"), &exports_val)) {
+        runtime_error("Internal: exports not found in module env");
+    }
+    if (exports_val.type != VAL_OBJECT) {
+        runtime_error("Internal: exports is not object");
+    }
+    env_set_fast(exports_val.data.obj_env, name, hash, res);
+    return res;
+}
+
 static RuntimeValue eval_break(const ASTNode *node, Environment *env);
 static RuntimeValue eval_continue(const ASTNode *node, Environment *env);
 static RuntimeValue eval_impl(const ASTNode *node, Environment *env);
@@ -141,7 +235,9 @@ static void lvalue_set(const LValue *lv, RuntimeValue v) {
     if (lv->kind == LV_VAR) {
         if (lv->var_entry != NULL) {
             lv->var_entry->value = v;
-            watch_trigger(lv->name, lv->hash, NULL);
+            if (watch_has_any()) {
+                watch_trigger(lv->name, lv->hash, NULL, &v);
+            }
         } else {
             env_update_fast(NULL, lv->name, lv->hash, v);
         }
@@ -197,7 +293,7 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
     }
 
     runtime_set_line(node->line);
-    profiler_on_eval(node->type);
+    PROFILER_ON_EVAL(node->type);
 
     switch (node->type) {
         case AST_NUMBER:
@@ -207,7 +303,7 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
             return make_string(node->data.string_value);
 
         case AST_IDENTIFIER:
-            return env_get_fast(env, node->data.identifier.name, node->data.identifier.id_hash);
+            return eval_identifier_cached(node, env);
 
         case AST_ARRAY: {
             const int count = node->data.array.item_count;
@@ -228,21 +324,25 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
 
         case AST_VAR_DECL: {
             RuntimeValue val = eval(node->data.var_decl.value, env);
-            gc_push_root(&val);
+            const int val_rooted = gc_push_root_if_needed(&val);
 
             env_set_fast(env, node->data.var_decl.name, node->data.var_decl.id_hash, val);
 
-            gc_pop_root();
+            if (val_rooted) {
+                gc_pop_root();
+            }
             return val;
         }
 
         case AST_ASSIGN: {
             RuntimeValue val = eval(node->data.assign.value, env);
-            gc_push_root(&val);
+            const int val_rooted = gc_push_root_if_needed(&val);
 
-            env_update_fast(env, node->data.assign.name, node->data.assign.id_hash, val);
+            assign_cached(node, env, val);
 
-            gc_pop_root();
+            if (val_rooted) {
+                gc_pop_root();
+            }
             return val;
         }
 
@@ -276,30 +376,40 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
 
         case AST_OBJ_GET: {
             RuntimeValue obj = eval(node->data.obj_get.object, env);
-            gc_push_root(&obj);
+            const int obj_rooted = gc_push_root_if_needed(&obj);
             if (obj.type != VAL_OBJECT) {
-                gc_pop_root();
+                if (obj_rooted) {
+                    gc_pop_root();
+                }
                 runtime_error("Property access on non-object");
             }
             RuntimeValue val;
             if (!env_try_get(obj.data.obj_env, node->data.obj_get.field, node->data.obj_get.field_hash, &val)) {
-                gc_pop_root();
+                if (obj_rooted) {
+                    gc_pop_root();
+                }
                 return make_null();
             }
-            gc_pop_root();
+            if (obj_rooted) {
+                gc_pop_root();
+            }
             return val;
         }
 
         case AST_OBJ_SET: {
             RuntimeValue obj = eval(node->data.obj_set.object, env);
-            gc_push_root(&obj);
+            const int obj_rooted = gc_push_root_if_needed(&obj);
             if (obj.type != VAL_OBJECT) {
-                gc_pop_root();
+                if (obj_rooted) {
+                    gc_pop_root();
+                }
                 runtime_error("Property set on non-object");
             }
             RuntimeValue val = eval(node->data.obj_set.value, env);
             env_set_fast(obj.data.obj_env, node->data.obj_set.field, node->data.obj_set.field_hash, val);
-            gc_pop_root();
+            if (obj_rooted) {
+                gc_pop_root();
+            }
             return val;
         }
 
@@ -345,8 +455,15 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
         case AST_REPEAT:
             return eval_repeat(node, env);
 
+        case AST_EXPORT:
+            return eval_export(node, env);
+
         case AST_USING: {
-            module_eval_file(node->data.using_stmt.path, env);
+            module_import(node->data.using_stmt.path,
+                          node->data.using_stmt.alias,
+                          node->data.using_stmt.is_legacy_path,
+                          node->data.using_stmt.star_import,
+                          env);
             return make_null();
         }
 

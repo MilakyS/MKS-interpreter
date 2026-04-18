@@ -1,0 +1,2 @@
+var items =: [10, 20, 30];
+var value =: items[5];

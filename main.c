@@ -3,8 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <math.h>
 #include <time.h>
+#include <errno.h>
+#include <ctype.h>
 
 #include "Lexer/lexer.h"
 #include "Parser/parser.h"
@@ -17,10 +18,199 @@
 #include "Runtime/errors.h"
 #include "Utils/file.h"
 #include "Runtime/extension.h"
-#include "Runtime/watch.h"
+#include "std/watch.h"
 #include "Runtime/profiler.h"
+#include "Runtime/functions.h"
 
 bool debug_mode = false;
+
+typedef struct {
+    char *data;
+    size_t len;
+    size_t cap;
+} StringBuffer;
+
+static const char *main_value_type_name(RuntimeValue value) {
+    if (value.type == VAL_RETURN) {
+        value.type = value.original_type;
+    }
+
+    switch (value.type) {
+        case VAL_INT: return "number";
+        case VAL_STRING: return "string";
+        case VAL_ARRAY: return "array";
+        case VAL_FUNC: return "function";
+        case VAL_NATIVE_FUNC: return "native function";
+        case VAL_RETURN: return "return";
+        case VAL_BREAK: return "break";
+        case VAL_CONTINUE: return "continue";
+        case VAL_OBJECT: return "object";
+        case VAL_BLUEPRINT: return "blueprint";
+        case VAL_NULL: return "null";
+    }
+    return "unknown";
+}
+
+static void sb_reserve(StringBuffer *sb, size_t extra) {
+    if (sb->len + extra + 1 <= sb->cap) {
+        return;
+    }
+
+    size_t new_cap = sb->cap == 0 ? 64 : sb->cap;
+    while (new_cap < sb->len + extra + 1) {
+        new_cap *= 2;
+    }
+
+    char *new_data = (char *)realloc(sb->data, new_cap);
+    if (new_data == NULL) {
+        runtime_error("Out of memory while converting value to string");
+    }
+
+    sb->data = new_data;
+    sb->cap = new_cap;
+}
+
+static void sb_append_len(StringBuffer *sb, const char *text, size_t len) {
+    if (text == NULL) {
+        text = "";
+        len = 0;
+    }
+
+    sb_reserve(sb, len);
+    memcpy(sb->data + sb->len, text, len);
+    sb->len += len;
+    sb->data[sb->len] = '\0';
+}
+
+static void sb_append(StringBuffer *sb, const char *text) {
+    sb_append_len(sb, text, text != NULL ? strlen(text) : 0);
+}
+
+static void append_value_string(StringBuffer *sb, RuntimeValue value) {
+    if (value.type == VAL_RETURN) {
+        value.type = value.original_type;
+    }
+
+    char num_buf[64];
+    switch (value.type) {
+        case VAL_INT:
+            snprintf(num_buf, sizeof(num_buf), "%g", value.data.float_value);
+            sb_append(sb, num_buf);
+            break;
+
+        case VAL_STRING:
+            if (value.data.managed_string != NULL &&
+                value.data.managed_string->data != NULL) {
+                sb_append_len(sb,
+                              value.data.managed_string->data,
+                              value.data.managed_string->len);
+            }
+            break;
+
+        case VAL_ARRAY:
+            sb_append(sb, "[");
+            if (value.data.managed_array != NULL) {
+                for (int i = 0; i < value.data.managed_array->count; i++) {
+                    if (i > 0) {
+                        sb_append(sb, ", ");
+                    }
+                    append_value_string(sb, value.data.managed_array->elements[i]);
+                }
+            }
+            sb_append(sb, "]");
+            break;
+
+        case VAL_OBJECT:
+            sb_append(sb, "<Object>");
+            break;
+
+        case VAL_FUNC:
+            sb_append(sb, "<Function>");
+            break;
+
+        case VAL_NATIVE_FUNC:
+            sb_append(sb, "<Native Function>");
+            break;
+
+        case VAL_BLUEPRINT:
+            sb_append(sb, "<Blueprint>");
+            break;
+
+        case VAL_BREAK:
+            sb_append(sb, "<Break>");
+            break;
+
+        case VAL_CONTINUE:
+            sb_append(sb, "<Continue>");
+            break;
+
+        case VAL_NULL:
+            sb_append(sb, "null");
+            break;
+
+        case VAL_RETURN:
+            break;
+    }
+}
+
+static RuntimeValue native_String(const RuntimeValue *args, const int arg_count) {
+    if (arg_count != 1) {
+        runtime_error("String expects 1 argument, got %d", arg_count);
+    }
+
+    StringBuffer sb = {0};
+    append_value_string(&sb, args[0]);
+    if (sb.data == NULL) {
+        return make_string("");
+    }
+
+    return make_string_owned(sb.data, sb.len);
+}
+
+static RuntimeValue native_Int(const RuntimeValue *args, const int arg_count) {
+    if (arg_count != 1) {
+        runtime_error("Int expects 1 argument, got %d", arg_count);
+    }
+
+    RuntimeValue value = args[0];
+    if (value.type == VAL_RETURN) {
+        value.type = value.original_type;
+    }
+
+    if (value.type == VAL_INT) {
+        return value;
+    }
+
+    if (value.type == VAL_NULL) {
+        return make_int(0);
+    }
+
+    if (value.type != VAL_STRING) {
+        runtime_error("Int cannot convert %s; expected number, string, or null",
+                      main_value_type_name(value));
+    }
+
+    const char *text = value.data.managed_string != NULL
+        ? value.data.managed_string->data
+        : "";
+    char *end = NULL;
+    errno = 0;
+    const double parsed = strtod(text, &end);
+
+    if (text == end) {
+        runtime_error("Int cannot parse '%s' as a number", text);
+    }
+
+    while (end != NULL && *end != '\0' && isspace((unsigned char)*end)) {
+        end++;
+    }
+
+    if (errno == ERANGE || end == NULL || *end != '\0') {
+        runtime_error("Int cannot parse '%s' as a number", text);
+    }
+
+    return make_int(parsed);
+}
 
 static RuntimeValue native_Read(const RuntimeValue *args, const int arg_count) {
     if (arg_count > 0 && args[0].type == VAL_STRING) {
@@ -55,67 +245,6 @@ static RuntimeValue native_Read(const RuntimeValue *args, const int arg_count) {
     return make_string(buffer);
 }
 
-#define UNUSED(x) (void)(x)
-
-static RuntimeValue native_Rand(const RuntimeValue *args, const int arg_count) {
-    UNUSED(args);
-    UNUSED(arg_count);
-    double r = (double)rand() / (double)RAND_MAX;
-    return make_int(r);
-}
-
-static RuntimeValue native_RandInt(const RuntimeValue *args, const int arg_count) {
-    if (arg_count != 2) runtime_error("randint expects 2 args (min, max)");
-    int min = (int)args[0].data.float_value;
-    int max = (int)args[1].data.float_value;
-    if (max < min) runtime_error("randint: max < min");
-    int v = min + rand() % (max - min + 1);
-    return make_int(v);
-}
-
-static RuntimeValue native_Math1(double (*fn)(double), const RuntimeValue *args, int arg_count, const char *name) {
-    if (arg_count != 1) runtime_error("%s expects 1 arg", name);
-    return make_int(fn(args[0].data.float_value));
-}
-
-static RuntimeValue native_Sqrt(const RuntimeValue *args, int arg_count) { return native_Math1(sqrt, args, arg_count, "sqrt"); }
-static RuntimeValue native_Sin (const RuntimeValue *args, int arg_count) { return native_Math1(sin,  args, arg_count, "sin"); }
-static RuntimeValue native_Cos (const RuntimeValue *args, int arg_count) { return native_Math1(cos,  args, arg_count, "cos"); }
-static RuntimeValue native_Floor(const RuntimeValue *args, int arg_count) { return native_Math1(floor, args, arg_count, "floor"); }
-static RuntimeValue native_Ceil (const RuntimeValue *args, int arg_count) { return native_Math1(ceil,  args, arg_count, "ceil"); }
-static RuntimeValue native_Round(const RuntimeValue *args, int arg_count) {
-    if (arg_count != 1) runtime_error("round expects 1 arg");
-    return make_int(llround(args[0].data.float_value));
-}
-
-static RuntimeValue native_Pow(const RuntimeValue *args, int arg_count) {
-    if (arg_count != 2) runtime_error("pow expects 2 args");
-    return make_int(pow(args[0].data.float_value, args[1].data.float_value));
-}
-
-static RuntimeValue native_Sleep(const RuntimeValue *args, int arg_count) {
-    if (arg_count != 1) runtime_error("sleep expects 1 arg (ms)");
-    int ms = (int)args[0].data.float_value;
-    if (ms < 0) ms = 0;
-    struct timespec ts = { ms / 1000, (ms % 1000) * 1000000L };
-    nanosleep(&ts, NULL);
-    return make_null();
-}
-
-static RuntimeValue native_Now(const RuntimeValue *args, int arg_count) {
-    UNUSED(args); UNUSED(arg_count);
-    time_t t = time(NULL);
-    char buf[64];
-    struct tm tm;
-    localtime_r(&t, &tm);
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
-    return make_string(buf);
-}
-
-static RuntimeValue native_Timestamp(const RuntimeValue *args, int arg_count) {
-    UNUSED(args); UNUSED(arg_count);
-    return make_int((double)time(NULL));
-}
 static RuntimeValue native_Expect(const RuntimeValue *args, const int arg_count) {
     if (arg_count < 1) {
         runtime_error("Expect needs at least 1 argument");
@@ -138,26 +267,6 @@ static RuntimeValue native_Object(const RuntimeValue *args, const int arg_count)
 
     return make_object(obj_env);
 }
-
-static RuntimeValue native_DefMethod(const RuntimeValue *args, const int arg_count) {
-    if (arg_count != 3) {
-        runtime_error("DefMethod expects (object, name, func)");
-    }
-
-    RuntimeValue obj = args[0];
-    RuntimeValue name = args[1];
-    RuntimeValue fn = args[2];
-
-    if (obj.type != VAL_OBJECT || name.type != VAL_STRING || fn.type != VAL_FUNC) {
-        runtime_error("DefMethod types: object, string, function");
-    }
-
-    const char *s = name.data.managed_string->data;
-    unsigned int h = get_hash(s);
-    env_set_fast(obj.data.obj_env, s, h, fn);
-    return fn;
-}
-
 static void env_register_native(Environment *env, const char *name, NativeFn fn) {
     RuntimeValue val;
     val.type = VAL_NATIVE_FUNC;
@@ -166,6 +275,33 @@ static void env_register_native(Environment *env, const char *name, NativeFn fn)
     val.original_type = VAL_NATIVE_FUNC;
 
     env_set_fast(env, name, get_hash(name), val);
+}
+
+static void call_entry_main(Environment *env) {
+    RuntimeValue main_val;
+    if (!env_try_get(env, "main", get_hash("main"), &main_val)) {
+        /* Нет точки входа — значит, скрипт запускается как раньше: только верхний уровень. */
+        return;
+    }
+
+    if (main_val.type == VAL_FUNC) {
+        const ASTNode *decl = main_val.data.func.node;
+        if (decl->data.func_decl.param_count != 0) {
+            runtime_error("main must take 0 arguments");
+        }
+        Environment *local_env = env_create_child(main_val.data.func.closure_env);
+        gc_push_env(local_env);
+        eval(decl->data.func_decl.body, local_env);
+        gc_pop_env();
+        return;
+    }
+
+    if (main_val.type == VAL_NATIVE_FUNC) {
+        main_val.data.native.fn(NULL, 0);
+        return;
+    }
+
+    runtime_error("main must be function or native function");
 }
 
 int main(const int argc, char **argv) {
@@ -186,8 +322,6 @@ int main(const int argc, char **argv) {
         gc_set_debug(1);
         fprintf(stderr, "[MKS] GC debug enabled\n");
     }
-
-    module_init();
 
     int argi = 1;
     int profile_flag = 0;
@@ -222,10 +356,16 @@ int main(const int argc, char **argv) {
         Environment *env = (Environment *)gc_alloc(sizeof(Environment), GC_OBJ_ENV);
         env_init(env);
         gc_push_env(env);
-    env_register_native(env, "Read", native_Read);
-    runtime_set_file("<repl>");
+        module_system_init(env);
+        env_register_native(env, "Read", native_Read);
+        env_register_native(env, "Object", native_Object);
+        env_register_native(env, "Int", native_Int);
+        env_register_native(env, "String", native_String);
+        env_register_native(env, "expect", native_Expect);
+        runtime_set_file("<repl>");
         printf(":mks> type code, Ctrl+D to exit\n");
         while (fgets(line, sizeof(line), stdin)) {
+            runtime_set_source(line);
             struct Lexer lexer;
             Token_init(&lexer, line);
             Parser parser;
@@ -247,6 +387,7 @@ int main(const int argc, char **argv) {
     }
 
     runtime_set_file(argv[argi]);
+    runtime_set_source(source);
 
     struct Lexer lexer;
     Token_init(&lexer, source);
@@ -257,40 +398,19 @@ int main(const int argc, char **argv) {
     Environment *env = (Environment *)gc_alloc(sizeof(Environment), GC_OBJ_ENV);
     env_init(env);
     gc_push_env(env);
+    module_system_init(env);
 
     env_register_native(env, "Read", native_Read);
     env_register_native(env, "Object", native_Object);
-    env_register_native(env, "DefMethod", native_DefMethod);
+    env_register_native(env, "Int", native_Int);
+    env_register_native(env, "String", native_String);
     env_register_native(env, "expect", native_Expect);
-    env_register_native(env, "rand", native_Rand);
-    env_register_native(env, "randint", native_RandInt);
-    env_register_native(env, "sqrt", native_Sqrt);
-    env_register_native(env, "pow", native_Pow);
-    env_register_native(env, "sin", native_Sin);
-    env_register_native(env, "cos", native_Cos);
-    env_register_native(env, "floor", native_Floor);
-    env_register_native(env, "ceil", native_Ceil);
-    env_register_native(env, "round", native_Round);
-    env_register_native(env, "sleep", native_Sleep);
-    env_register_native(env, "now", native_Now);
-    env_register_native(env, "timestamp", native_Timestamp);
-        env_register_native(env, "rand", native_Rand);
-        env_register_native(env, "randint", native_RandInt);
-        env_register_native(env, "sqrt", native_Sqrt);
-        env_register_native(env, "pow", native_Pow);
-        env_register_native(env, "sin", native_Sin);
-        env_register_native(env, "cos", native_Cos);
-        env_register_native(env, "floor", native_Floor);
-        env_register_native(env, "ceil", native_Ceil);
-        env_register_native(env, "round", native_Round);
-        env_register_native(env, "sleep", native_Sleep);
-        env_register_native(env, "now", native_Now);
-        env_register_native(env, "timestamp", native_Timestamp);
 
     ASTNode *program = parser_parse_program(&parser);
     if (profile_flag) profiler_enable();
     if (program != NULL) {
         eval(program, env);
+        call_entry_main(env);
     }
     if (profile_flag) profiler_report();
 

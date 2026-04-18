@@ -1,0 +1,2 @@
+var number =: 42;
+var value =: number.name;

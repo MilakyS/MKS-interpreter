@@ -1,0 +1,1 @@
+var value =: "hello" - 3;

@@ -18,7 +18,8 @@ static RuntimeValue handle_object_method(
     const ASTNode *node,
     RuntimeValue *args,
     int arg_count,
-    Environment *env
+    Environment *env,
+    int *found
 );
 
 static inline RuntimeValue unwrap(RuntimeValue v) {
@@ -36,14 +37,17 @@ static RuntimeValue dispatch(
     RuntimeValue target,
     RuntimeValue *args,
     int arg_count,
-    Environment *env
+    Environment *env,
+    int *found
 ) {
     for (size_t i = 0; i < count; i++) {
         if (table[i].hash == hash && strcmp(table[i].name, name) == 0) {
+            if (found) *found = 1;
             return table[i].handler(target, args, arg_count, env);
         }
     }
 
+    if (found) *found = 0;
     return make_null();
 }
 
@@ -420,34 +424,35 @@ RuntimeValue eval_method_call(const ASTNode *node, Environment *env) {
     int gc_snap = gc_save_stack();
 
     RuntimeValue target = unwrap(eval(node->data.method_call.target, env));
-    gc_push_root(&target);
+    gc_push_root_if_needed(&target);
 
     int arg_count = node->data.method_call.arg_count;
     if (arg_count > 16) {
-        arg_count = 16;
+        runtime_error("Method call supports at most 16 arguments, got %d", arg_count);
     }
 
     RuntimeValue args[16];
     for (int i = 0; i < arg_count; i++) {
         args[i] = unwrap(eval(node->data.method_call.args[i], env));
-        gc_push_root(&args[i]);
+        gc_push_root_if_needed(&args[i]);
     }
 
     unsigned int hash = node->data.method_call.method_hash;
     const char *name = node->data.method_call.method_name;
     RuntimeValue result = make_null();
+    int found = 0;
 
     switch (target.type) {
         case VAL_ARRAY:
-            result = dispatch(array_methods, ARRAY_METHODS_COUNT, hash, name, target, args, arg_count, env);
+            result = dispatch(array_methods, ARRAY_METHODS_COUNT, hash, name, target, args, arg_count, env, &found);
             break;
 
         case VAL_STRING:
-            result = dispatch(string_methods, STRING_METHODS_COUNT, hash, name, target, args, arg_count, env);
+            result = dispatch(string_methods, STRING_METHODS_COUNT, hash, name, target, args, arg_count, env, &found);
             break;
 
         case VAL_OBJECT:
-            result = handle_object_method(target, node, args, arg_count, env);
+            result = handle_object_method(target, node, args, arg_count, env, &found);
             break;
 
         default:
@@ -455,14 +460,15 @@ RuntimeValue eval_method_call(const ASTNode *node, Environment *env) {
             break;
     }
 
-    if (result.type == VAL_NULL) {
+    if (!found) {
         RuntimeValue ext = dispatch_extension(target.type, hash, name, target, args, arg_count, env);
         if (ext.type != VAL_NULL) {
             result = ext;
+            found = 1;
         }
     }
 
-    if (result.type == VAL_NULL) {
+    if (!found) {
         runtime_error("Method '%s' not found", name);
     }
 
@@ -475,7 +481,8 @@ static RuntimeValue handle_object_method(
     const ASTNode *node,
     RuntimeValue *args,
     int arg_count,
-    Environment *env
+    Environment *env,
+    int *found
 ) {
     UNUSED(env);
 
@@ -484,8 +491,10 @@ static RuntimeValue handle_object_method(
                      node->data.method_call.method_name,
                      node->data.method_call.method_hash,
                      &member)) {
+        if (found) *found = 0;
         return make_null();
     }
+    if (found) *found = 1;
 
     if (member.type == VAL_FUNC) {
         ASTNode *decl = member.data.func.node;
@@ -512,6 +521,10 @@ static RuntimeValue handle_object_method(
         RuntimeValue result = unwrap(eval(decl->data.func_decl.body, local_env));
         gc_pop_env();
         return result;
+    }
+
+    if (member.type == VAL_NATIVE_FUNC) {
+        return member.data.native.fn(args, arg_count);
     }
 
     return member;
