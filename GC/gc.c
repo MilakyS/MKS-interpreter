@@ -5,9 +5,12 @@
 
 #include "../Runtime/value.h"
 #include "../Runtime/errors.h"
+#include "../Runtime/context.h"
 #include "../env/env.h"
 
-GarbageCollector mks_gc;
+GarbageCollector *gc_state(void) {
+    return &mks_context_current()->gc;
+}
 
 typedef struct {
     GCObject **items;
@@ -26,6 +29,7 @@ static const char *gc_type_name(const GCObjectType type) {
     switch (type) {
         case GC_OBJ_STRING: return "STRING";
         case GC_OBJ_ARRAY:  return "ARRAY";
+        case GC_OBJ_POINTER:return "POINTER";
         case GC_OBJ_ENV:    return "ENV";
         case GC_OBJ_OBJECT: return "OBJECT";
         default:            return "UNKNOWN";
@@ -106,7 +110,12 @@ static void gc_mark_value_push(GCMarkStack *stack, const RuntimeValue *val) {
             gc_mark_object_push(stack, (GCObject *)val->data.managed_array);
             break;
 
+        case VAL_POINTER:
+            gc_mark_object_push(stack, (GCObject *)val->data.managed_pointer);
+            break;
+
         case VAL_OBJECT:
+        case VAL_MODULE:
             gc_mark_object_push(stack, (GCObject *)val->data.obj_env);
             break;
 
@@ -196,6 +205,22 @@ static void gc_mark_all_iterative(Environment *global_env, Environment *current_
                 break;
             }
 
+            case GC_OBJ_POINTER: {
+                ManagedPointer *ptr = (ManagedPointer *)obj;
+                switch (ptr->kind) {
+                    case PTR_ENV_VAR:
+                        gc_mark_object_push(&stack, (GCObject *)ptr->as.var.env);
+                        break;
+                    case PTR_ARRAY_ELEM:
+                        gc_mark_object_push(&stack, (GCObject *)ptr->as.array_elem.array);
+                        break;
+                    case PTR_OBJECT_FIELD:
+                        gc_mark_object_push(&stack, (GCObject *)ptr->as.object_field.env);
+                        break;
+                }
+                break;
+            }
+
             case GC_OBJ_STRING:
             default:
                 break;
@@ -230,6 +255,18 @@ int gc_save_stack(void) {
 void gc_restore_stack(const int top) {
     if (top >= 0 && top <= mks_gc.roots_count) {
         mks_gc.roots_count = top;
+    }
+}
+
+MksGcRootScope gc_root_scope_begin(void) {
+    MksGcRootScope scope;
+    scope.top = gc_save_stack();
+    return scope;
+}
+
+void gc_root_scope_end(MksGcRootScope *scope) {
+    if (scope != NULL) {
+        gc_restore_stack(scope->top);
     }
 }
 
@@ -272,7 +309,9 @@ int gc_value_needs_root(const RuntimeValue *val) {
     switch (val->type) {
         case VAL_STRING:
         case VAL_ARRAY:
+        case VAL_POINTER:
         case VAL_OBJECT:
+        case VAL_MODULE:
         case VAL_FUNC:
         case VAL_BLUEPRINT:
             return 1;
@@ -343,6 +382,53 @@ void *gc_alloc(const size_t size, const GCObjectType type) {
     return obj;
 }
 
+static void gc_free_object(GCObject *obj) {
+    if (obj == NULL) {
+        return;
+    }
+
+    switch (obj->type) {
+        case GC_OBJ_STRING:
+            free(((ManagedString *)obj)->data);
+            break;
+
+        case GC_OBJ_ARRAY:
+            free(((ManagedArray *)obj)->elements);
+            break;
+
+        case GC_OBJ_POINTER:
+            if (((ManagedPointer *)obj)->kind == PTR_OBJECT_FIELD) {
+                free(((ManagedPointer *)obj)->as.object_field.field);
+            }
+            break;
+
+        case GC_OBJ_ENV:
+        case GC_OBJ_OBJECT: {
+            Environment *env = (Environment *)obj;
+
+            if (env->buckets != NULL) {
+                for (size_t i = 0; i < env->bucket_count; i++) {
+                    EnvVar *entry = env->buckets[i];
+                    while (entry != NULL) {
+                        EnvVar *temp = entry;
+                        entry = entry->next;
+                        free(temp->name);
+                        free(temp);
+                    }
+                }
+
+                free(env->buckets);
+            }
+            break;
+        }
+
+        default:
+            break;
+    }
+
+    free(obj);
+}
+
 static void gc_sweep(void) {
     GCObject **ptr = &mks_gc.head;
 
@@ -360,40 +446,7 @@ static void gc_sweep(void) {
             mks_gc.freed_objects++;
             mks_gc.freed_bytes += unreached->size;
 
-            switch (unreached->type) {
-                case GC_OBJ_STRING:
-                    free(((ManagedString *)unreached)->data);
-                    break;
-
-                case GC_OBJ_ARRAY:
-                    free(((ManagedArray *)unreached)->elements);
-                    break;
-
-                case GC_OBJ_ENV:
-                case GC_OBJ_OBJECT: {
-                    Environment *env = (Environment *)unreached;
-
-                    if (env->buckets != NULL) {
-                        for (size_t i = 0; i < env->bucket_count; i++) {
-                            EnvVar *entry = env->buckets[i];
-                            while (entry != NULL) {
-                                EnvVar *temp = entry;
-                                entry = entry->next;
-                                free(temp->name);
-                                free(temp);
-                            }
-                        }
-
-                        free(env->buckets);
-                    }
-                    break;
-                }
-
-                default:
-                    break;
-            }
-
-            free(unreached);
+            gc_free_object(unreached);
         } else {
             GC_LOG("[GC] keep ptr=%p type=%s size=%zu\n",
                    (void *)(*ptr),
@@ -404,6 +457,22 @@ static void gc_sweep(void) {
             ptr = &(*ptr)->next;
         }
     }
+}
+
+void gc_free_all(void) {
+    GCObject *obj = mks_gc.head;
+    while (obj != NULL) {
+        GCObject *next = obj->next;
+        mks_gc.freed_objects++;
+        mks_gc.freed_bytes += obj->size;
+        gc_free_object(obj);
+        obj = next;
+    }
+
+    mks_gc.head = NULL;
+    mks_gc.allocated_bytes = 0;
+    mks_gc.roots_count = 0;
+    mks_gc.env_roots_count = 0;
 }
 
 void gc_collect(Environment *global_env, Environment *current_env) {

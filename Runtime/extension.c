@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "errors.h"
+#include "context.h"
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
 
@@ -19,7 +20,16 @@ typedef struct ExtTable {
     int cap;
 } ExtTable;
 
-static ExtTable ext_tables[3];
+static ExtTable *extension_tables(void) {
+    MKSContext *ctx = mks_context_current();
+    if (ctx->extension_tables == NULL) {
+        ctx->extension_tables = calloc(3, sizeof(ExtTable));
+        if (ctx->extension_tables == NULL) {
+            runtime_error("Out of memory allocating extension tables");
+        }
+    }
+    return (ExtTable *)ctx->extension_tables;
+}
 
 static inline RuntimeValue unwrap(RuntimeValue v) {
     if (v.type == VAL_RETURN) {
@@ -43,6 +53,11 @@ static void ext_push(ExtTable *t, ExtMethod m) {
 }
 
 void extension_free_all(void) {
+    ExtTable *ext_tables = (ExtTable *)mks_context_current()->extension_tables;
+    if (ext_tables == NULL) {
+        return;
+    }
+
     for (int i = 0; i < 3; i++) {
         ExtTable *t = &ext_tables[i];
         for (int j = 0; j < t->count; j++) {
@@ -53,13 +68,15 @@ void extension_free_all(void) {
         t->count = 0;
         t->cap = 0;
     }
+    free(ext_tables);
+    mks_context_current()->extension_tables = NULL;
 }
 
 void register_extension(const ASTNode *node, Environment *env) {
     if (node->type != AST_EXTEND) return;
     int tgt = node->data.extend.target_type;
     if (tgt < 0 || tgt > 2) return;
-    ExtTable *tab = &ext_tables[tgt];
+    ExtTable *tab = &extension_tables()[tgt];
 
     for (int i = 0; i < node->data.extend.method_count; i++) {
         ASTNode *m = node->data.extend.methods[i];
@@ -77,10 +94,10 @@ RuntimeValue dispatch_extension(enum ValueType vtype, unsigned int hash, const c
     int idx = -1;
     if (vtype == VAL_ARRAY) idx = EXT_ARRAY;
     else if (vtype == VAL_STRING) idx = EXT_STRING;
-    else if (vtype == VAL_INT) idx = EXT_NUMBER;
+    else if (vtype == VAL_INT || vtype == VAL_FLOAT) idx = EXT_NUMBER;
     else return make_null();
 
-    ExtTable *tab = &ext_tables[idx];
+    ExtTable *tab = &extension_tables()[idx];
     for (int i = 0; i < tab->count; i++) {
         if (tab->items[i].hash == hash && strcmp(tab->items[i].name, name) == 0) {
             const ASTNode *decl = tab->items[i].func_node;

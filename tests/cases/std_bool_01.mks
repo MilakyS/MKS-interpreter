@@ -1,8 +1,8 @@
-using "std/bool";
+using std.bool as bool;
 
-Writeln(true);
-Writeln(false);
-Writeln(not(true));
-Writeln(not(false));
-Writeln(and(true, false));
-Writeln(or(false, true));
+Writeln(bool.true);
+Writeln(bool.false);
+Writeln(bool.not(bool.true));
+Writeln(bool.not(bool.false));
+Writeln(bool.and(bool.true, bool.false));
+Writeln(bool.or(bool.false, bool.true));

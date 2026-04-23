@@ -28,6 +28,9 @@ static int is_truthy(const RuntimeValue v) {
             return 0;
 
         case VAL_INT:
+            return v.data.int_value != 0;
+
+        case VAL_FLOAT:
             return v.data.float_value != 0.0;
 
         case VAL_STRING:
@@ -40,7 +43,9 @@ static int is_truthy(const RuntimeValue v) {
 
         case VAL_FUNC:
         case VAL_NATIVE_FUNC:
+        case VAL_POINTER:
         case VAL_OBJECT:
+        case VAL_MODULE:
             return 1;
 
         case VAL_RETURN:
@@ -53,13 +58,16 @@ static int is_truthy(const RuntimeValue v) {
 
 static const char *value_type_name(const RuntimeValue v) {
     switch (v.type) {
-        case VAL_INT:         return "number";
+        case VAL_INT:         return "int";
+        case VAL_FLOAT:       return "float";
         case VAL_STRING:      return "string";
         case VAL_ARRAY:       return "array";
+        case VAL_POINTER:     return "pointer";
         case VAL_FUNC:        return "function";
         case VAL_NATIVE_FUNC: return "native_function";
         case VAL_RETURN:      return "return";
         case VAL_OBJECT:      return "object";
+        case VAL_MODULE:      return "module";
         case VAL_NULL:        return "null";
         default:              return "unknown";
     }
@@ -96,6 +104,10 @@ static void runtime_type_error_binop(const int op,
 static const char *value_to_cstr(const RuntimeValue v, char *buf, const size_t buf_size) {
     switch (v.type) {
         case VAL_INT:
+            snprintf(buf, buf_size, "%lld", (long long)v.data.int_value);
+            return buf;
+
+        case VAL_FLOAT:
             snprintf(buf, buf_size, "%g", v.data.float_value);
             return buf;
 
@@ -111,8 +123,14 @@ static const char *value_to_cstr(const RuntimeValue v, char *buf, const size_t b
         case VAL_ARRAY:
             return "[Array]";
 
+        case VAL_POINTER:
+            return "[Pointer]";
+
         case VAL_OBJECT:
             return "[Object]";
+
+        case VAL_MODULE:
+            return "[Module]";
 
         case VAL_FUNC:
             return "[Function]";
@@ -158,8 +176,7 @@ static RuntimeValue concat_values_as_string(const RuntimeValue left_val,
 
     char *res_str = (char *)malloc(len_l + len_r + 1);
     if (res_str == NULL) {
-        fprintf(stderr, "Runtime Error: Out of memory in string concatenation\n");
-        exit(1);
+        runtime_error("Out of memory in string concatenation");
     }
 
     memcpy(res_str, s_l, len_l);
@@ -235,65 +252,66 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
         return result;
     }
 
-    if (left_val.type == VAL_INT && right_val.type == VAL_INT) {
-        const double l = left_val.data.float_value;
-        const double r = right_val.data.float_value;
+    if (runtime_value_is_number(left_val) && runtime_value_is_number(right_val)) {
+        const int both_int = left_val.type == VAL_INT && right_val.type == VAL_INT;
+        const int64_t li = runtime_value_as_int(left_val);
+        const int64_t ri = runtime_value_as_int(right_val);
+        const double l = runtime_value_as_double(left_val);
+        const double r = runtime_value_as_double(right_val);
 
         switch (op) {
             case TOKEN_PLUS:
-                result = make_int(l + r);
+                result = both_int ? make_int(li + ri) : make_float(l + r);
                 break;
 
             case TOKEN_MINUS:
-                result = make_int(l - r);
+                result = both_int ? make_int(li - ri) : make_float(l - r);
                 break;
 
             case TOKEN_STAR:
-                result = make_int(l * r);
+                result = both_int ? make_int(li * ri) : make_float(l * r);
                 break;
 
             case TOKEN_SLASH:
                 if (r == 0.0) {
                     if (right_rooted) gc_pop_root();
                     if (left_rooted) gc_pop_root();
-                    fprintf(stderr, "Runtime Error: division by zero\n");
-                    exit(1);
+                    runtime_error("division by zero");
                 }
-                result = make_int(l / r);
+                result = make_float(l / r);
                 break;
 
             case TOKEN_MOD:
                 if (r == 0.0) {
                     if (right_rooted) gc_pop_root();
                     if (left_rooted) gc_pop_root();
-                    fprintf(stderr, "Runtime Error: modulo by zero\n");
-                    exit(1);
+                    runtime_error("modulo by zero");
                 }
-                result = make_int(fmod(l, r));
+                result = both_int ? make_int(li % ri) : make_float(fmod(l, r));
                 break;
 
             case TOKEN_EQ:
-                result = make_bool(l == r);
+                result = make_bool(both_int ? (li == ri) : (l == r));
                 break;
 
             case TOKEN_NOT_EQ:
-                result = make_bool(l != r);
+                result = make_bool(both_int ? (li != ri) : (l != r));
                 break;
 
             case TOKEN_LESS:
-                result = make_bool(l < r);
+                result = make_bool(both_int ? (li < ri) : (l < r));
                 break;
 
             case TOKEN_GREATER:
-                result = make_bool(l > r);
+                result = make_bool(both_int ? (li > ri) : (l > r));
                 break;
 
             case TOKEN_LESS_EQUAL:
-                result = make_bool(l <= r);
+                result = make_bool(both_int ? (li <= ri) : (l <= r));
                 break;
 
             case TOKEN_GREATER_EQUAL:
-                result = make_bool(l >= r);
+                result = make_bool(both_int ? (li >= ri) : (l >= r));
                 break;
 
             default:

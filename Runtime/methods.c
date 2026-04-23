@@ -10,6 +10,7 @@
 #include "../GC/gc.h"
 #include "errors.h"
 #include "extension.h"
+#include "context.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -143,7 +144,7 @@ static RuntimeValue m_array_exclude(RuntimeValue target, RuntimeValue *args, int
         return make_null();
     }
 
-    int idx = (int)args[0].data.float_value;
+    int idx = (int)runtime_value_as_int(args[0]);
     if (idx < 0 || idx >= arr->count) {
         return make_null();
     }
@@ -165,7 +166,7 @@ static RuntimeValue m_array_offset(RuntimeValue target, RuntimeValue *args, int 
         return make_null();
     }
 
-    int idx = (int)args[0].data.float_value;
+    int idx = (int)runtime_value_as_int(args[0]);
     if (idx >= 0 && idx < arr->count) {
         return arr->elements[idx];
     }
@@ -275,7 +276,7 @@ static RuntimeValue m_string_len(RuntimeValue target, RuntimeValue *args, int ar
     UNUSED(arg_count);
     UNUSED(env);
 
-    return make_int((double)target.data.managed_string->len);
+    return make_int((int64_t)target.data.managed_string->len);
 }
 
 static RuntimeValue m_string_contains(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
@@ -452,6 +453,7 @@ RuntimeValue eval_method_call(const ASTNode *node, Environment *env) {
             break;
 
         case VAL_OBJECT:
+        case VAL_MODULE:
             result = handle_object_method(target, node, args, arg_count, env, &found);
             break;
 
@@ -491,6 +493,9 @@ static RuntimeValue handle_object_method(
                      node->data.method_call.method_name,
                      node->data.method_call.method_hash,
                      &member)) {
+        if (target.type == VAL_MODULE) {
+            runtime_error("Module has no exported symbol '%s'", node->data.method_call.method_name);
+        }
         if (found) *found = 0;
         return make_null();
     }
@@ -498,10 +503,15 @@ static RuntimeValue handle_object_method(
 
     if (member.type == VAL_FUNC) {
         ASTNode *decl = member.data.func.node;
-        Environment *local_env = env_create_child(target.data.obj_env);
+        Environment *parent_env = target.type == VAL_MODULE
+            ? member.data.func.closure_env
+            : target.data.obj_env;
+        Environment *local_env = env_create_child(parent_env);
         gc_push_env(local_env);
 
-        env_set(local_env, "self", target);
+        if (target.type == VAL_OBJECT) {
+            env_set(local_env, "self", target);
+        }
 
         const int param_count = decl->data.func_decl.param_count;
         if (arg_count != param_count) {
@@ -524,7 +534,7 @@ static RuntimeValue handle_object_method(
     }
 
     if (member.type == VAL_NATIVE_FUNC) {
-        return member.data.native.fn(args, arg_count);
+        return member.data.native.fn(mks_context_current(), args, arg_count);
     }
 
     return member;

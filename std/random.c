@@ -1,22 +1,38 @@
 #include "random.h"
 #include "../Runtime/module.h"
 #include "../Runtime/errors.h"
+#include "../Runtime/context.h"
 #include "../Utils/hash.h"
-#include <stdlib.h>
-#include <time.h>
+#include <stdint.h>
 
-static RuntimeValue n_rand(const RuntimeValue *args, const int arg_count) {
-    (void)args; (void)arg_count;
-    double r = (double)rand() / (double)RAND_MAX;
-    return make_int(r);
+static uint64_t random_next_u64(MKSContext *ctx) {
+    uint64_t x = ctx != NULL ? ctx->random_state : mks_context_current()->random_state;
+    if (x == 0) {
+        x = 0x9e3779b97f4a7c15ULL;
+    }
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    if (ctx != NULL) {
+        ctx->random_state = x;
+    } else {
+        mks_context_current()->random_state = x;
+    }
+    return x * 0x2545f4914f6cdd1dULL;
 }
 
-static RuntimeValue n_randint(const RuntimeValue *args, const int arg_count) {
+static RuntimeValue n_rand(MKSContext *ctx, const RuntimeValue *args, const int arg_count) {
+    (void)args; (void)arg_count;
+    double r = (double)(random_next_u64(ctx) >> 11) * (1.0 / 9007199254740992.0);
+    return make_float(r);
+}
+
+static RuntimeValue n_randint(MKSContext *ctx, const RuntimeValue *args, const int arg_count) {
     if (arg_count != 2) runtime_error("randint expects 2 args (min, max)");
-    int min = (int)args[0].data.float_value;
-    int max = (int)args[1].data.float_value;
+    int min = (int)runtime_value_as_int(args[0]);
+    int max = (int)runtime_value_as_int(args[1]);
     if (max < min) runtime_error("randint: max < min");
-    int v = min + rand() % (max - min + 1);
+    int v = min + (int)(random_next_u64(ctx) % (uint64_t)(max - min + 1));
     return make_int(v);
 }
 

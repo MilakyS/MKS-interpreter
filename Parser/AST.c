@@ -46,8 +46,22 @@ ASTNode *create_ast_assign(char *name, unsigned int id_hash, ASTNode *value, int
 }
 
 ASTNode *create_ast_num(double val, int line) {
+    return create_ast_float(val, line);
+}
+
+ASTNode *create_ast_int(const int64_t val, int line) {
     ASTNode *node = create_ast(AST_NUMBER, line);
-    node->data.number_value = val;
+    node->data.number.kind = NUMBER_INT;
+    node->data.number.int_value = val;
+    node->data.number.float_value = (double)val;
+    return node;
+}
+
+ASTNode *create_ast_float(const double val, int line) {
+    ASTNode *node = create_ast(AST_NUMBER, line);
+    node->data.number.kind = NUMBER_FLOAT;
+    node->data.number.int_value = (int64_t)val;
+    node->data.number.float_value = val;
     return node;
 }
 
@@ -83,6 +97,25 @@ ASTNode *create_ast_index_assign(ASTNode *left, ASTNode *right, int line) {
     ASTNode *node = create_ast(AST_INDEX_ASSIGN, line);
     node->data.index_assign.left = left;
     node->data.index_assign.right = right;
+    return node;
+}
+
+ASTNode *create_ast_address_of(ASTNode *target, int line) {
+    ASTNode *node = create_ast(AST_ADDRESS_OF, line);
+    node->data.address_of.target = target;
+    return node;
+}
+
+ASTNode *create_ast_deref(ASTNode *target, int line) {
+    ASTNode *node = create_ast(AST_DEREF, line);
+    node->data.deref.target = target;
+    return node;
+}
+
+ASTNode *create_ast_deref_assign(ASTNode *target, ASTNode *value, int line) {
+    ASTNode *node = create_ast(AST_DEREF_ASSIGN, line);
+    node->data.deref_assign.target = target;
+    node->data.deref_assign.value = value;
     return node;
 }
 
@@ -467,6 +500,19 @@ void delete_ast_node(ASTNode *node) {
         case AST_INDEX_ASSIGN:
             delete_ast_node(node->data.index_assign.left);
             delete_ast_node(node->data.index_assign.right);
+            break;
+
+        case AST_ADDRESS_OF:
+            delete_ast_node(node->data.address_of.target);
+            break;
+
+        case AST_DEREF:
+            delete_ast_node(node->data.deref.target);
+            break;
+
+        case AST_DEREF_ASSIGN:
+            delete_ast_node(node->data.deref_assign.target);
+            delete_ast_node(node->data.deref_assign.value);
             break;
 
         case AST_NUMBER:

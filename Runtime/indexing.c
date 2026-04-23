@@ -18,7 +18,7 @@ RuntimeValue eval_index(const ASTNode *node, Environment *env) {
     const int target_rooted = gc_push_root_if_needed(&target);
 
     const RuntimeValue idx_val = unwrap(eval(node->data.index.index, env));
-    int i = (int)idx_val.data.float_value;
+    int i = (int)runtime_value_as_int(idx_val);
 
     if (target.type == VAL_STRING) {
         const ManagedString *str = target.data.managed_string;
@@ -92,7 +92,7 @@ RuntimeValue eval_index_assign(const ASTNode *node, Environment *env) {
         const int target_rooted = gc_push_root_if_needed(&target);
 
         const RuntimeValue idx_val = unwrap(eval(lhs->data.index.index, env));
-        const int i = (int)idx_val.data.float_value;
+        const int i = (int)runtime_value_as_int(idx_val);
 
         if (target.type != VAL_ARRAY) {
             if (target_rooted) gc_pop_root();

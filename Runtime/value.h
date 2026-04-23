@@ -3,12 +3,15 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "../GC/gc.h"
 
 struct Environment;
+struct EnvVar;
 
 struct ASTNode;
 struct Environment;
+struct MKSContext;
 
 typedef struct RuntimeValue RuntimeValue;
 
@@ -25,21 +28,50 @@ typedef struct {
     int capacity;
 } ManagedArray;
 
+typedef enum PointerTargetKind {
+    PTR_ENV_VAR,
+    PTR_ARRAY_ELEM,
+    PTR_OBJECT_FIELD
+} PointerTargetKind;
+
+typedef struct ManagedPointer {
+    GCObject gc;
+    PointerTargetKind kind;
+    union {
+        struct {
+            struct Environment *env;
+            struct EnvVar *entry;
+        } var;
+        struct {
+            ManagedArray *array;
+            int index;
+        } array_elem;
+        struct {
+            struct Environment *env;
+            char *field;
+            unsigned int hash;
+        } object_field;
+    } as;
+} ManagedPointer;
+
 enum ValueType {
     VAL_INT,
+    VAL_FLOAT,
     VAL_STRING,
     VAL_ARRAY,
+    VAL_POINTER,
     VAL_FUNC,
     VAL_NATIVE_FUNC,
     VAL_RETURN,
     VAL_BREAK,
     VAL_CONTINUE,
     VAL_OBJECT,
+    VAL_MODULE,
     VAL_BLUEPRINT,
     VAL_NULL,
 };
 
-typedef RuntimeValue (*NativeFn)(const RuntimeValue *args, int arg_count);
+typedef RuntimeValue (*NativeFn)(struct MKSContext *ctx, const RuntimeValue *args, int arg_count);
 
 typedef struct NativeWithCtx {
     NativeFn fn;
@@ -55,9 +87,11 @@ struct RuntimeValue {
     enum ValueType original_type;
 
     union {
+        int64_t int_value;
         double float_value;
         ManagedString *managed_string;
         ManagedArray *managed_array;
+        ManagedPointer *managed_pointer;
 
         struct {
             struct ASTNode *node;
@@ -74,14 +108,23 @@ struct RuntimeValue {
     } data;
 };
 
-RuntimeValue make_int(double val);
+RuntimeValue make_int(int64_t val);
+RuntimeValue make_float(double val);
+int runtime_value_is_number(RuntimeValue val);
+double runtime_value_as_double(RuntimeValue val);
+int64_t runtime_value_as_int(RuntimeValue val);
+RuntimeValue make_number_from_double(double val);
 RuntimeValue make_string(const char *str);
 RuntimeValue make_string_raw(const char *str);
 RuntimeValue make_string_owned(char *str, size_t len);
 RuntimeValue make_string_len(const char *str, size_t len);
 RuntimeValue make_array(int initial_capacity);
+RuntimeValue make_pointer_to_var(struct Environment *env, struct EnvVar *entry);
+RuntimeValue make_pointer_to_array_elem(ManagedArray *array, int index);
+RuntimeValue make_pointer_to_object_field(struct Environment *env, const char *field, unsigned int hash);
 RuntimeValue make_null(void);
 RuntimeValue make_object(struct Environment *env);
+RuntimeValue make_module(struct Environment *env);
 RuntimeValue make_blueprint(const struct ASTNode *entity_node, struct Environment *closure_env);
 RuntimeValue make_break(void);
 RuntimeValue make_continue(void);

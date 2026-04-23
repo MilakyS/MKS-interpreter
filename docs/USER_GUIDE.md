@@ -85,11 +85,36 @@ Writeln("body");
 
 ## 10. Imports & stdlib
 ```mks
-using "path/to/lib";
-using "std/math";   // built-in
-Writeln(square(5));
+using "./path/to/lib" as lib;
+using std.math as math;
+Writeln(math.square(5));
 ```
-Resolution: current file dir → CWD → installed std path. Each module executes once.
+`using` now works as a namespace import: it binds one module object and does not spill exported names into the local scope.
+
+Resolution:
+- `./...` and `../...` are relative imports
+- `std.*` loads stdlib modules
+- other dotted ids are package imports resolved from the nearest `mks.toml`
+
+Imported modules load declarations once. Top-level executable statements are skipped during import.
+
+### Installing stdlib
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+```
+
+Local user install:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+cmake --build build
+cmake --install build
+```
+
+This installs `mks` into `bin/` and stdlib into `share/mks/std/`. The runtime resolves installed stdlib automatically.
 
 ## 11. Input with Read
 `Read` is a built-in function for reading from standard input. It always returns a string.

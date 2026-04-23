@@ -1,6 +1,7 @@
 #include "watch.h"
 #include "../Eval/eval.h"
 #include "../Runtime/errors.h"
+#include "../Runtime/context.h"
 #include "../Runtime/module.h"
 #include "../Runtime/functions.h"
 #include "../Utils/hash.h"
@@ -17,7 +18,11 @@ typedef struct WatchHandler {
     struct WatchHandler *next;
 } WatchHandler;
 
-static WatchHandler *watch_head = NULL;
+static WatchHandler **watch_head_slot(void) {
+    return (WatchHandler **)&mks_context_current()->watch_head;
+}
+
+#define watch_head (*watch_head_slot())
 
 int watch_has_any(void) {
     return watch_head != NULL;
@@ -77,7 +82,7 @@ static void invoke_callable(RuntimeValue callable, const RuntimeValue *value, En
     RuntimeValue res;
 
     if (callable.type == VAL_NATIVE_FUNC) {
-        res = callable.data.native.fn(&arg, 1);
+        res = callable.data.native.fn(mks_context_current(), &arg, 1);
     } else if (callable.type == VAL_FUNC) {
         const ASTNode *decl = callable.data.func.node;
         if (decl->data.func_decl.param_count != 1) runtime_error("watch: handler expects 1 param");
@@ -123,7 +128,8 @@ void watch_clear_all(void) {
 }
 
 
-static RuntimeValue n_on(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_on(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     if (arg_count != 2) runtime_error("watch.on expects (name, handler)");
     if (args[0].type != VAL_STRING) runtime_error("watch.on: name must be string");
     RuntimeValue handler = args[1];
@@ -132,7 +138,8 @@ static RuntimeValue n_on(const RuntimeValue *args, int arg_count) {
     return make_null();
 }
 
-static RuntimeValue n_mark(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_mark(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     if (arg_count != 1) runtime_error("watch.mark expects 1 string arg");
     if (args[0].type != VAL_STRING) runtime_error("watch.mark: name must be string");
     unsigned int h = get_hash(args[0].data.managed_string->data);
@@ -140,13 +147,15 @@ static RuntimeValue n_mark(const RuntimeValue *args, int arg_count) {
     return make_null();
 }
 
-static RuntimeValue n_clear(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_clear(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     (void)args; (void)arg_count;
     watch_clear_all();
     return make_null();
 }
 
-static RuntimeValue n_trigger(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_trigger(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     if (arg_count < 1 || arg_count > 2) runtime_error("watch.trigger expects (name [, value])");
     if (args[0].type != VAL_STRING) runtime_error("watch.trigger: name must be string");
     unsigned int h = get_hash(args[0].data.managed_string->data);

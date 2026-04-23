@@ -6,6 +6,7 @@
 #include "../Utils/hash.h"
 #include "../GC/gc.h"
 #include "errors.h"
+#include "context.h"
 
 static inline RuntimeValue unwrap(RuntimeValue v) {
     if (v.type == VAL_RETURN) {
@@ -55,7 +56,7 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
     RuntimeValue result = make_null();
 
     if (callable.type == VAL_NATIVE_FUNC) {
-        result = callable.data.native.fn(args, arg_count);
+        result = callable.data.native.fn(mks_context_current(), args, arg_count);
     } else if (callable.type == VAL_BLUEPRINT) {
         result = eval_blueprint_construct(callable, args, arg_count, env);
     } else if (callable.type == VAL_FUNC) {

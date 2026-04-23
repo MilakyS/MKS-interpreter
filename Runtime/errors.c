@@ -3,19 +3,11 @@
 #endif
 
 #include "errors.h"
+#include "context.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 #include <stdarg.h>
-
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
-
-static char current_file[PATH_MAX] = "";
-static const char *current_source = NULL;
-static int current_line = -1;
 
 static char *runtime_strdup(const char *src) {
     if (src == NULL) {
@@ -191,38 +183,40 @@ const MksDiagnosticInfo *mks_diagnostic_info(MksErrorCode code) {
 }
 
 void runtime_set_file(const char *file_path) {
+    MKSContext *ctx = mks_context_current();
     if (file_path == NULL) {
-        current_file[0] = '\0';
+        ctx->current_file[0] = '\0';
         return;
     }
 
-    if (current_file == file_path) {
+    if (ctx->current_file == file_path) {
         return;
     }
 
-    size_t len = strnlen(file_path, sizeof(current_file) - 1);
-    memcpy(current_file, file_path, len);
-    current_file[len] = '\0';
+    size_t len = strnlen(file_path, sizeof(ctx->current_file) - 1);
+    memcpy(ctx->current_file, file_path, len);
+    ctx->current_file[len] = '\0';
 }
 
 const char *runtime_current_file(void) {
-    return current_file[0] ? current_file : NULL;
+    MKSContext *ctx = mks_context_current();
+    return ctx->current_file[0] ? ctx->current_file : NULL;
 }
 
 void runtime_set_source(const char *source) {
-    current_source = source;
+    mks_context_current()->current_source = source;
 }
 
 const char *runtime_current_source(void) {
-    return current_source;
+    return mks_context_current()->current_source;
 }
 
 void runtime_set_line(const int line) {
-    current_line = line;
+    mks_context_current()->current_line = line;
 }
 
 int runtime_current_line(void) {
-    return current_line;
+    return mks_context_current()->current_line;
 }
 
 const char *runtime_push_file(const char *file_path) {
@@ -449,7 +443,7 @@ void runtime_error_at(const char *file, const int line, const char *fmt, ...) {
     va_start(args, fmt);
     vreport(file, line, fmt, args);
     va_end(args);
-    exit(1);
+    mks_context_abort(1);
 }
 
 void runtime_error(const char *fmt, ...) {
@@ -457,5 +451,5 @@ void runtime_error(const char *fmt, ...) {
     va_start(args, fmt);
     vreport(runtime_current_file(), runtime_current_line(), fmt, args);
     va_end(args);
-    exit(1);
+    mks_context_abort(1);
 }

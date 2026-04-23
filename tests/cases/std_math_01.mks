@@ -1,6 +1,6 @@
-using "std/math";
-Writeln(abs(-5));
-Writeln(abs(0));
-Writeln(square(4));
-Writeln(min(10, 3));
-Writeln(max(10, 3));
+using std.math as math;
+Writeln(math.abs(-5));
+Writeln(math.abs(0));
+Writeln(math.square(4));
+Writeln(math.min(10, 3));
+Writeln(math.max(10, 3));

@@ -7,9 +7,8 @@
 #include "../GC/gc.h"
 #include "../Utils/hash.h"
 #include "../Runtime/errors.h"
+#include "../Runtime/context.h"
 #include "../std/watch.h"
-
-size_t mks_env_shape_epoch = 0;
 
 static char *env_strdup(const char *src) {
     if (src == NULL) {
@@ -147,7 +146,7 @@ void env_set_fast(Environment *env, const char *name, const unsigned int h, Runt
     env->buckets[final_index] = new_var;
 
     env->entry_count++;
-    env->version = ++mks_env_shape_epoch;
+    env->version = ++mks_context_current()->env_shape_epoch;
 }
 
 void env_set(Environment *env, const char *name, const RuntimeValue value) {
@@ -203,6 +202,10 @@ bool env_try_get(const Environment *env, const char *name, unsigned int h, Runti
 }
 
 EnvVar *env_get_entry(const Environment *env, const char *name, const unsigned int h) {
+    return env_get_entry_with_owner(env, name, h, NULL);
+}
+
+EnvVar *env_get_entry_with_owner(const Environment *env, const char *name, const unsigned int h, Environment **owner) {
     const Environment *cur_env = env;
 
     while (cur_env != NULL) {
@@ -212,6 +215,9 @@ EnvVar *env_get_entry(const Environment *env, const char *name, const unsigned i
 
             while (current != NULL) {
                 if (current->hash == h && strcmp(current->name, name) == 0) {
+                    if (owner != NULL) {
+                        *owner = (Environment *)cur_env;
+                    }
                     return current;
                 }
                 current = current->next;

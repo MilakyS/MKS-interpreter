@@ -3,6 +3,7 @@
 #include "time.h"
 #include "../Runtime/module.h"
 #include "../Runtime/errors.h"
+#include "../Runtime/context.h"
 #include "../Utils/hash.h"
 #include <time.h>
 #include <stdint.h>
@@ -22,8 +23,8 @@ static double monotonic_ms(void) {
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
 }
 
-static RuntimeValue n_now(const RuntimeValue *args, int arg_count) {
-    (void)args; (void)arg_count;
+static RuntimeValue n_now(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx; (void)args; (void)arg_count;
     time_t t = time(NULL);
     char buf[64];
     struct tm tm;
@@ -32,43 +33,46 @@ static RuntimeValue n_now(const RuntimeValue *args, int arg_count) {
     return make_string(buf);
 }
 
-static RuntimeValue n_timestamp(const RuntimeValue *args, int arg_count) {
-    (void)args; (void)arg_count;
-    return make_int((double)time(NULL));
+static RuntimeValue n_timestamp(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx; (void)args; (void)arg_count;
+    return make_int((int64_t)time(NULL));
 }
 
-static RuntimeValue n_millis(const RuntimeValue *args, int arg_count) {
-    (void)args; (void)arg_count;
-    return make_int(epoch_ms());
+static RuntimeValue n_millis(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx; (void)args; (void)arg_count;
+    return make_int((int64_t)epoch_ms());
 }
 
-static RuntimeValue n_monotonic(const RuntimeValue *args, int arg_count) {
-    (void)args; (void)arg_count;
-    return make_int(monotonic_ms());
+static RuntimeValue n_monotonic(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx; (void)args; (void)arg_count;
+    return make_int((int64_t)monotonic_ms());
 }
 
-static RuntimeValue n_sleep(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_sleep(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     if (arg_count != 1) runtime_error("sleep expects 1 arg (ms)");
-    int64_t ms = (int64_t)args[0].data.float_value;
+    int64_t ms = runtime_value_as_int(args[0]);
     if (ms < 0) ms = 0;
     struct timespec ts = { (time_t)(ms / 1000), (long)((ms % 1000) * 1000000L) };
     nanosleep(&ts, NULL);
     return make_null();
 }
 
-static RuntimeValue n_sleep_s(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_sleep_s(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     if (arg_count != 1) runtime_error("sleep_s expects 1 arg (seconds)");
-    double s = args[0].data.float_value;
+    double s = runtime_value_as_double(args[0]);
     if (s < 0) s = 0;
     struct timespec ts = { (time_t)s, (long)((s - floor(s)) * 1e9) };
     nanosleep(&ts, NULL);
     return make_null();
 }
 
-static RuntimeValue n_format(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_format(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     if (arg_count != 2) runtime_error("format expects (timestamp_sec, format)");
     if (args[1].type != VAL_STRING) runtime_error("format: fmt must be string");
-    time_t t = (time_t)args[0].data.float_value;
+    time_t t = (time_t)runtime_value_as_int(args[0]);
     const char *fmt = args[1].data.managed_string->data;
     char buf[128];
     struct tm tm;
@@ -77,7 +81,8 @@ static RuntimeValue n_format(const RuntimeValue *args, int arg_count) {
     return make_string(buf);
 }
 
-static RuntimeValue n_parse(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_parse(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     if (arg_count != 2) runtime_error("parse expects (text, format)");
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) runtime_error("parse: both args must be string");
     const char *text = args[0].data.managed_string->data;
@@ -86,7 +91,7 @@ static RuntimeValue n_parse(const RuntimeValue *args, int arg_count) {
     char *ret = strptime(text, fmt, &tm);
     if (ret == NULL) return make_null();
     time_t t = timegm(&tm);
-    return make_int((double)t);
+    return make_int((int64_t)t);
 }
 
 static void bind(RuntimeValue exports, const char *name, NativeFn fn) {

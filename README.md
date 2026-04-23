@@ -19,19 +19,19 @@ Small experimental scripting language + interpreter in C.
 - Swap operator: `a <--> b;` (fast in-place).
 - Defer & watch/on change.
 - Entities (lightweight objects) + methods; extend built-ins (array/string).
-- Imports with built-in std path (`std/math`).
+- Namespace imports with std/package modules.
 - Friendly errors with hints; recursion-depth guard.
 - Simple mark/sweep GC; sanitizer-friendly build.
 
 ## Hello, MKS
 ```mks
-using "std/math";
+using std.math as math;
 
 var x =: 10;
 watch x;
 on change x -> Writeln("x changed"); <-
 
-x =: square(x);     // triggers watcher
+x =: math.square(x);     // triggers watcher
 Writeln("result:", x);
 ```
 
@@ -91,18 +91,38 @@ Writeln([1,2,3].sum()); // 6
 
 ## Imports & stdlib
 ```mks
-using "path/to/file";   // .mks optional
-using "std/math";       // built-in path
+using "./path/to/file";         // relative file
+using std.math as math;         // std namespace
+using mypkg.tools.strings as s; // package module
 ```
-Resolution: current file dir → CWD → installed std path. A module runs once (duplicate/nested imports are skipped).
+`using` always binds a namespace object into the current scope. It does not copy exports into the scope.
 
-`std/math.mks` (pure MKS):
+Resolution order:
+- relative paths like `./` and `../`
+- std modules like `std.math`
+- package imports resolved from the nearest `mks.toml`
+
+Imported modules load declarations once. Top-level executable statements are skipped during import; put reusable behavior inside exported functions.
+
+`std.math`:
 ```mks
-using "std/math";
-Writeln(abs(-5));
-Writeln(square(4));
-Writeln(min(10, 3));
-Writeln(max(10, 3));
+using std.math as math;
+Writeln(math.abs(-5));
+Writeln(math.square(4));
+Writeln(math.min(10, 3));
+Writeln(math.max(10, 3));
+```
+
+Minimal package layout:
+```text
+my-app/
+  mks.toml
+  src/main.mks
+  packages/
+    cool.lib/
+      mks.toml
+      src/main.mks
+      src/http/client.mks
 ```
 
 ## Watch / defer
@@ -121,6 +141,30 @@ mks --repl       # interactive REPL
 mks --version
 mks --help
 ```
+
+## Install
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+sudo cmake --install build
+```
+
+User-local install:
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+cmake --build build
+cmake --install build
+```
+
+Installed layout:
+- `bin/mks`
+- `share/mks/std/...`
+
+Runtime stdlib lookup order:
+- `MKS_STD_PATH`
+- install-relative data dir near the executable
+- configured install data dir
+- common system paths
 
 
 ## Repo layout

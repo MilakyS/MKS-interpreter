@@ -18,6 +18,26 @@ x =: 20;
 a <--> b;          // swap
 ```
 
+## Pointers
+```mks
+var x =: 10;
+var p =: &x;       // address of variable
+*p =: 20;          // write through pointer
+Writeln(x);        // 20
+
+fnc inc(ptr) ->
+    *ptr =: *ptr + 1;
+<-
+inc(&x);
+
+var xs =: [1, 2, 3];
+var item =: &xs[1];
+*item =: 9;
+```
+
+Pointers can target variables, array elements, and object fields. Taking the
+address of a temporary expression is rejected.
+
 ## Functions
 ```mks
 fnc add(a, b) ->
@@ -71,10 +91,18 @@ extend array ->
 
 ## Imports & Stdlib
 ```mks
-using "path/to/file";
-using "std/math";
+using "./path/to/file";
+using std.math as math;
+using cool.lib.http.client as client;
 ```
-Resolution: current dir → CWD → installed std path. Each module runs once.
+`using` binds a module namespace object. Exports are accessed through the alias or default module name.
+
+Resolution:
+- `./...` and `../...` resolve relative to the current file
+- `std.*` resolves from stdlib
+- other dotted ids resolve as package imports from the nearest `mks.toml`
+
+Imported modules load declarations once. Top-level executable statements are skipped during import.
 
 ## Tests
 ```mks

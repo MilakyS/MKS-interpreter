@@ -1,7 +1,9 @@
 #include "lexer.h"
+#include "../Runtime/context.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 static void advance(struct Lexer *lexer) {
     if (lexer->current_char == '\n') {
@@ -44,6 +46,8 @@ static struct Token make_token(const enum TokenType type,
     token.line = line;
     token.start = start;
     token.length = length;
+    token.is_float = false;
+    token.int_value = 0;
     token.double_value = 0.0;
     return token;
 }
@@ -52,19 +56,19 @@ static struct Token make_error_token(const char *start, const int length, const 
     return make_token(TOKEN_ERROR, start, length, line);
 }
 
-static char last_error_hint[128] = "";
-
 const char *lexer_last_error_hint(void) {
-    return last_error_hint[0] ? last_error_hint : NULL;
+    const char *hint = mks_context_current()->lexer_error_hint;
+    return hint[0] ? hint : NULL;
 }
 
 void lexer_set_error_hint(const char *msg) {
+    char *hint = mks_context_current()->lexer_error_hint;
     if (msg == NULL) {
-        last_error_hint[0] = '\0';
+        hint[0] = '\0';
         return;
     }
-    strncpy(last_error_hint, msg, sizeof(last_error_hint) - 1);
-    last_error_hint[sizeof(last_error_hint) - 1] = '\0';
+    strncpy(hint, msg, sizeof(mks_context_current()->lexer_error_hint) - 1);
+    hint[sizeof(mks_context_current()->lexer_error_hint) - 1] = '\0';
 }
 
 static struct Token Read_Number(struct Lexer *lexer) {
@@ -75,8 +79,10 @@ static struct Token Read_Number(struct Lexer *lexer) {
         advance(lexer);
     }
 
+    bool is_float = false;
     if (lexer->current_char == '.' &&
         isdigit((unsigned char)lexer->source[lexer->position + 1])) {
+        is_float = true;
         advance(lexer);
 
         while (isdigit((unsigned char)lexer->current_char)) {
@@ -87,7 +93,21 @@ static struct Token Read_Number(struct Lexer *lexer) {
     const int length = (int)((lexer->source + lexer->position) - start);
 
     struct Token token = make_token(TOKEN_TYPE_NUMBER, start, length, line);
-    token.double_value = strtod(start, NULL);
+    token.is_float = is_float;
+    if (is_float) {
+        token.double_value = strtod(start, NULL);
+    } else {
+        errno = 0;
+        char *end = NULL;
+        long long parsed = strtoll(start, &end, 10);
+        if (errno == 0 && end == start + length) {
+            token.int_value = (int64_t)parsed;
+            token.double_value = (double)parsed;
+        } else {
+            token.is_float = true;
+            token.double_value = strtod(start, NULL);
+        }
+    }
     return token;
 }
 
@@ -269,7 +289,7 @@ struct Token lexer_next(struct Lexer *lexer) {
                 return make_token(TOKEN_AND, start, 2, line);
             }
             advance(lexer);
-            return make_error_token(start, 1, line);
+            return make_token(TOKEN_AMPERSAND, start, 1, line);
 
         case '|':
             if (next == '|') {

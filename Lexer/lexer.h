@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 enum TokenType {
     TOKEN_EOF,
@@ -30,6 +31,7 @@ enum TokenType {
     TOKEN_GREATER_EQUAL,
     TOKEN_LESS_EQUAL,
     TOKEN_AND,
+    TOKEN_AMPERSAND,
     TOKEN_OR,
     TOKEN_LBRACKET, // [
     TOKEN_RBRACKET,  // ]
@@ -75,12 +77,12 @@ struct Token {
     int line;
     const char *start;
     int length;
+    bool is_float;
 
-    union {
-        double double_value;
-        bool bool_value;
-        char char_value;
-    };
+    int64_t int_value;
+    double double_value;
+    bool bool_value;
+    char char_value;
 };
 
 void Token_init(struct Lexer *lexer, const char *source);

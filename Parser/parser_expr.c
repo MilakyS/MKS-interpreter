@@ -47,6 +47,12 @@ static ASTNode* parser_parse_assignment(Parser *parser) {
             return create_ast_index_assign(node, rhs, line);
         }
 
+        if (node->type == AST_DEREF) {
+            ASTNode *target = node->data.deref.target;
+            free(node);
+            return create_ast_deref_assign(target, rhs, line);
+        }
+
         if (node->type == AST_OBJ_GET) {
             return create_ast_obj_set(node->data.obj_get.object,
                                       node->data.obj_get.field,
@@ -164,6 +170,18 @@ static ASTNode* parser_parse_unary(Parser *parser) {
         return parser_parse_unary(parser);
     }
 
+    if (parser->current_token.type == TOKEN_AMPERSAND) {
+        const int line = parser->current_token.line;
+        parser_eat(parser, TOKEN_AMPERSAND);
+        return create_ast_address_of(parser_parse_unary(parser), line);
+    }
+
+    if (parser->current_token.type == TOKEN_STAR) {
+        const int line = parser->current_token.line;
+        parser_eat(parser, TOKEN_STAR);
+        return create_ast_deref(parser_parse_unary(parser), line);
+    }
+
     return parser_parse_primary(parser);
 }
 
@@ -172,9 +190,13 @@ static ASTNode* parser_parse_primary(Parser *parser) {
     const int line = parser->current_token.line;
 
     if (parser->current_token.type == TOKEN_TYPE_NUMBER) {
-        const double value = parser->current_token.double_value;
+        const int is_float = parser->current_token.is_float;
+        const int64_t int_value = parser->current_token.int_value;
+        const double float_value = parser->current_token.double_value;
         parser_eat(parser, TOKEN_TYPE_NUMBER);
-        node = create_ast_num(value, line);
+        node = is_float
+            ? create_ast_float(float_value, line)
+            : create_ast_int(int_value, line);
         return parser_parse_postfix(parser, node);
     }
 

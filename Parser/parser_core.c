@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #include "../Runtime/errors.h"
+#include "../Runtime/context.h"
 
 #define PARSER_SNIPPET_MAX 64
 
@@ -76,6 +77,7 @@ static const char *token_type_name(enum TokenType type) {
         case TOKEN_GREATER_EQUAL: return ">=";
         case TOKEN_LESS_EQUAL: return "<=";
         case TOKEN_AND: return "&&";
+        case TOKEN_AMPERSAND: return "&";
         case TOKEN_OR: return "||";
         case TOKEN_LBRACKET: return "[";
         case TOKEN_RBRACKET: return "]";
@@ -201,7 +203,7 @@ static void parser_vpanic(Parser *parser, const char *prefix, const char *messag
         }
     }
 
-    exit(1);
+    mks_context_abort(1);
 }
 
 static void parser_check_lexer_error(Parser *parser) {

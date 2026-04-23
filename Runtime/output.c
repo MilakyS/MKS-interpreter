@@ -12,6 +12,10 @@ void print_value(const RuntimeValue *val) {
 
     switch (val->type) {
         case VAL_INT:
+            printf("%lld", (long long)val->data.int_value);
+            break;
+
+        case VAL_FLOAT:
             printf("%g", val->data.float_value);
             break;
 
@@ -38,8 +42,16 @@ void print_value(const RuntimeValue *val) {
             printf("]");
             break;
 
+        case VAL_POINTER:
+            printf("<Pointer>");
+            break;
+
         case VAL_OBJECT:
-            printf("<Module/Object>");
+            printf("<Object>");
+            break;
+
+        case VAL_MODULE:
+            printf("<Module>");
             break;
 
         case VAL_FUNC:
@@ -82,11 +94,10 @@ RuntimeValue eval_output(const ASTNode *node, Environment *env) {
         }
 
         RuntimeValue val = eval(args[i], env);
-        gc_push_root(&val);
-
+        MKS_GC_ROOTS(output_roots);
+        MKS_GC_ROOT(&val);
         print_value(&val);
-
-        gc_pop_root();
+        MKS_GC_ROOTS_END(output_roots);
 
         if (i < count - 1) {
             printf(" ");

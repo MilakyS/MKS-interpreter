@@ -8,8 +8,6 @@
 #define ENV_MAX_LOAD_NUM 3
 #define ENV_MAX_LOAD_DEN 4
 
-extern size_t mks_env_shape_epoch;
-
 typedef struct EnvVar {
     char *name;
     unsigned int hash;
@@ -38,5 +36,6 @@ void env_update_fast(Environment *env, const char *name, unsigned int h, Runtime
 bool env_try_get(const Environment *env, const char *name, unsigned int h, RuntimeValue *out);
 /* Returns pointer to EnvVar if found, else NULL (no allocation). */
 struct EnvVar *env_get_entry(const Environment *env, const char *name, unsigned int h);
+struct EnvVar *env_get_entry_with_owner(const Environment *env, const char *name, unsigned int h, struct Environment **owner);
 
 #endif

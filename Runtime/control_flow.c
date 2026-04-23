@@ -60,11 +60,11 @@ RuntimeValue eval_block(const ASTNode *node, Environment *env) {
 RuntimeValue eval_if(const ASTNode *node, Environment *env) {
     RuntimeValue cond = unwrap(eval(node->data.if_block.condition, env));
 
-    if (cond.type != VAL_INT) {
+    if (!runtime_value_is_number(cond)) {
         runtime_error("Unsupported condition type in if statement");
     }
 
-    if (cond.data.float_value != 0.0) {
+    if (runtime_value_as_double(cond) != 0.0) {
         return eval(node->data.if_block.body, env);
     }
 
@@ -76,7 +76,7 @@ RuntimeValue eval_if(const ASTNode *node, Environment *env) {
 }
 
 RuntimeValue eval_while(const ASTNode *node, Environment *env) {
-    while (unwrap(eval(node->data.while_block.condition, env)).data.float_value != 0.0) {
+    while (runtime_value_as_double(unwrap(eval(node->data.while_block.condition, env))) != 0.0) {
         gc_check(env);
 
         RuntimeValue res = eval(node->data.while_block.body, env);
@@ -101,7 +101,7 @@ RuntimeValue eval_for(const ASTNode *node, Environment *env) {
 
         if (node->data.for_block.condition != NULL) {
             RuntimeValue cond = unwrap(eval(node->data.for_block.condition, local));
-            if (cond.data.float_value == 0.0) {
+            if (runtime_value_as_double(cond) == 0.0) {
                 break;
             }
         }
@@ -120,8 +120,8 @@ RuntimeValue eval_for(const ASTNode *node, Environment *env) {
 
 RuntimeValue eval_repeat(const ASTNode *node, Environment *env) {
     RuntimeValue countv = unwrap(eval(node->data.repeat_stmt.count_expr, env));
-    if (countv.type != VAL_INT) runtime_error("repeat expects number");
-    int count = (int)countv.data.float_value;
+    if (!runtime_value_is_number(countv)) runtime_error("repeat expects number");
+    int count = (int)runtime_value_as_int(countv);
     if (count < 0) count = 0;
 
     Environment *loop_env = env;

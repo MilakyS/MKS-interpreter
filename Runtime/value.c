@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 
 #include "../env/env.h"
 #include "../Parser/AST.h"
@@ -29,18 +30,79 @@ static ManagedString *alloc_managed_string(void) {
     return str;
 }
 
-RuntimeValue make_int(const double val) {
+RuntimeValue make_int(const int64_t val) {
     RuntimeValue v;
     v.type = VAL_INT;
     v.original_type = VAL_INT;
+    v.data.int_value = val;
+    return v;
+}
+
+RuntimeValue make_float(const double val) {
+    RuntimeValue v;
+    v.type = VAL_FLOAT;
+    v.original_type = VAL_FLOAT;
     v.data.float_value = val;
     return v;
+}
+
+int runtime_value_is_number(RuntimeValue val) {
+    if (val.type == VAL_RETURN) {
+        val.type = val.original_type;
+    }
+
+    return val.type == VAL_INT || val.type == VAL_FLOAT;
+}
+
+double runtime_value_as_double(RuntimeValue val) {
+    if (val.type == VAL_RETURN) {
+        val.type = val.original_type;
+    }
+
+    if (val.type == VAL_INT) {
+        return (double)val.data.int_value;
+    }
+    if (val.type == VAL_FLOAT) {
+        return val.data.float_value;
+    }
+    return 0.0;
+}
+
+int64_t runtime_value_as_int(RuntimeValue val) {
+    if (val.type == VAL_RETURN) {
+        val.type = val.original_type;
+    }
+
+    if (val.type == VAL_INT) {
+        return val.data.int_value;
+    }
+    if (val.type == VAL_FLOAT) {
+        return (int64_t)val.data.float_value;
+    }
+    return 0;
+}
+
+RuntimeValue make_number_from_double(const double val) {
+    double integral = 0.0;
+    if (isfinite(val) && modf(val, &integral) == 0.0 &&
+        integral >= (double)INT64_MIN && integral <= (double)INT64_MAX) {
+        return make_int((int64_t)integral);
+    }
+    return make_float(val);
 }
 
 RuntimeValue make_object(Environment *env) {
     RuntimeValue v;
     v.type = VAL_OBJECT;
     v.original_type = VAL_OBJECT;
+    v.data.obj_env = env;
+    return v;
+}
+
+RuntimeValue make_module(Environment *env) {
+    RuntimeValue v;
+    v.type = VAL_MODULE;
+    v.original_type = VAL_MODULE;
     v.data.obj_env = env;
     return v;
 }
@@ -182,11 +244,53 @@ RuntimeValue make_array(int initial_capacity) {
     return v;
 }
 
+static ManagedPointer *alloc_managed_pointer(void) {
+    ManagedPointer *ptr = (ManagedPointer *)gc_alloc(sizeof(ManagedPointer), GC_OBJ_POINTER);
+    ptr->kind = PTR_ENV_VAR;
+    ptr->as.var.env = NULL;
+    ptr->as.var.entry = NULL;
+    return ptr;
+}
+
+RuntimeValue make_pointer_to_var(Environment *env, EnvVar *entry) {
+    RuntimeValue v;
+    v.type = VAL_POINTER;
+    v.original_type = VAL_POINTER;
+    v.data.managed_pointer = alloc_managed_pointer();
+    v.data.managed_pointer->kind = PTR_ENV_VAR;
+    v.data.managed_pointer->as.var.env = env;
+    v.data.managed_pointer->as.var.entry = entry;
+    return v;
+}
+
+RuntimeValue make_pointer_to_array_elem(ManagedArray *array, int index) {
+    RuntimeValue v;
+    v.type = VAL_POINTER;
+    v.original_type = VAL_POINTER;
+    v.data.managed_pointer = alloc_managed_pointer();
+    v.data.managed_pointer->kind = PTR_ARRAY_ELEM;
+    v.data.managed_pointer->as.array_elem.array = array;
+    v.data.managed_pointer->as.array_elem.index = index;
+    return v;
+}
+
+RuntimeValue make_pointer_to_object_field(Environment *env, const char *field, unsigned int hash) {
+    RuntimeValue v;
+    v.type = VAL_POINTER;
+    v.original_type = VAL_POINTER;
+    v.data.managed_pointer = alloc_managed_pointer();
+    v.data.managed_pointer->kind = PTR_OBJECT_FIELD;
+    v.data.managed_pointer->as.object_field.env = env;
+    v.data.managed_pointer->as.object_field.hash = hash;
+    v.data.managed_pointer->as.object_field.field = mks_strdup(field);
+    return v;
+}
+
 RuntimeValue make_null(void) {
     RuntimeValue v;
     v.type = VAL_NULL;
     v.original_type = VAL_NULL;
-    v.data.float_value = 0;
+    v.data.int_value = 0;
     return v;
 }
 
@@ -203,7 +307,7 @@ RuntimeValue make_break(void) {
     RuntimeValue v;
     v.type = VAL_BREAK;
     v.original_type = VAL_BREAK;
-    v.data.float_value = 0;
+    v.data.int_value = 0;
     return v;
 }
 
@@ -211,6 +315,6 @@ RuntimeValue make_continue(void) {
     RuntimeValue v;
     v.type = VAL_CONTINUE;
     v.original_type = VAL_CONTINUE;
-    v.data.float_value = 0;
+    v.data.int_value = 0;
     return v;
 }

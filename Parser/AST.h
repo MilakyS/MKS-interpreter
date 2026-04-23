@@ -3,6 +3,18 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
+
+typedef enum NumberKind {
+    NUMBER_INT,
+    NUMBER_FLOAT
+} NumberKind;
+
+typedef struct NumberLiteral {
+    NumberKind kind;
+    int64_t int_value;
+    double float_value;
+} NumberLiteral;
 
 struct Environment;
 struct EnvVar;
@@ -40,6 +52,9 @@ typedef enum ASTNodeType {
     AST_CONTINUE,
     AST_REPEAT,
     AST_EXPORT,
+    AST_ADDRESS_OF,
+    AST_DEREF,
+    AST_DEREF_ASSIGN,
 } ASTNodeType;
 
 typedef struct ASTNode {
@@ -47,7 +62,7 @@ typedef struct ASTNode {
     int line;
 
     union {
-        double number_value;
+        NumberLiteral number;
         char *string_value;
 
         struct {
@@ -146,6 +161,19 @@ typedef struct ASTNode {
         } index_assign;
 
         struct {
+            struct ASTNode *target;
+        } address_of;
+
+        struct {
+            struct ASTNode *target;
+        } deref;
+
+        struct {
+            struct ASTNode *target;
+            struct ASTNode *value;
+        } deref_assign;
+
+        struct {
             struct ASTNode *object;
             char *field;
             unsigned int field_hash;
@@ -233,6 +261,8 @@ ASTNode *create_ast_ident(char *name, unsigned int id_hash, int line);
 ASTNode *create_ast_var_decl(ASTNode *value, int line, char *name, unsigned int id_hash);
 ASTNode *create_ast_assign(char *name, unsigned int id_hash, ASTNode *value, int line);
 
+ASTNode *create_ast_int(int64_t val, int line);
+ASTNode *create_ast_float(double val, int line);
 ASTNode *create_ast_num(double val, int line);
 ASTNode *create_ast_string(char *val, int line);
 ASTNode *create_ast_array(ASTNode **elements, int count, int line);
@@ -240,6 +270,9 @@ ASTNode *create_ast_array(ASTNode **elements, int count, int line);
 ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, int op, int line);
 ASTNode *create_ast_index(ASTNode *target, ASTNode *index, int line);
 ASTNode *create_ast_index_assign(ASTNode *left, ASTNode *right, int line);
+ASTNode *create_ast_address_of(ASTNode *target, int line);
+ASTNode *create_ast_deref(ASTNode *target, int line);
+ASTNode *create_ast_deref_assign(ASTNode *target, ASTNode *value, int line);
 ASTNode *create_ast_swap(ASTNode *l, ASTNode *r, int line);
 ASTNode *create_ast_test(char *name, ASTNode *body, int line);
 ASTNode *create_ast_obj_get(ASTNode *object, char *field, unsigned int hash, int line);

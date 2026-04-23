@@ -2,6 +2,7 @@
 #include "tty.h"
 #include "../Runtime/module.h"
 #include "../Runtime/errors.h"
+#include "../Runtime/context.h"
 #include "../Utils/hash.h"
 
 #include <termios.h>
@@ -36,17 +37,18 @@ static void set_raw_mode(int enable) {
     }
 }
 
-static RuntimeValue n_set_raw(const RuntimeValue *args, int arg_count) {
+static RuntimeValue n_set_raw(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
     int enable = 1;
     if (arg_count == 1) {
-        enable = (int)args[0].data.float_value;
+        enable = (int)runtime_value_as_int(args[0]);
     }
     set_raw_mode(enable != 0);
     return make_null();
 }
 
-static RuntimeValue n_readch(const RuntimeValue *args, int arg_count) {
-    (void)args; (void)arg_count;
+static RuntimeValue n_readch(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx; (void)args; (void)arg_count;
     fd_set rfds;
     FD_ZERO(&rfds);
     FD_SET(STDIN_FILENO, &rfds);

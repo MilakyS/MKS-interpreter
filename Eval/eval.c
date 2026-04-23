@@ -17,6 +17,7 @@
 #include "../Runtime/extension.h"
 #include "../std/watch.h"
 #include "../Runtime/profiler.h"
+#include "../Runtime/context.h"
 #include "../Utils/hash.h"
 
 static inline RuntimeValue unwrap_return(RuntimeValue value) {
@@ -33,11 +34,16 @@ static RuntimeValue eval_test(const ASTNode *node, Environment *env);
 static RuntimeValue eval_defer(const ASTNode *node, Environment *env);
 static RuntimeValue eval_watch(const ASTNode *node, Environment *env);
 static RuntimeValue eval_on_change(const ASTNode *node, Environment *env);
+static RuntimeValue eval_address_of(const ASTNode *node, Environment *env);
+static RuntimeValue eval_deref(const ASTNode *node, Environment *env);
+static RuntimeValue eval_deref_assign(const ASTNode *node, Environment *env);
 
 static int ast_env_cache_valid(const Environment *env,
                                const Environment *cached_env,
                                size_t cached_env_version) {
-    return env != NULL && env == cached_env && cached_env_version == mks_env_shape_epoch;
+    return env != NULL &&
+           env == cached_env &&
+           cached_env_version == mks_context_current()->env_shape_epoch;
 }
 
 static RuntimeValue eval_identifier_cached(const ASTNode *node, Environment *env) {
@@ -58,7 +64,7 @@ static RuntimeValue eval_identifier_cached(const ASTNode *node, Environment *env
     ASTNode *mutable_node = (ASTNode *)node;
     mutable_node->data.identifier.cached_entry = entry;
     mutable_node->data.identifier.cached_env = env;
-    mutable_node->data.identifier.cached_env_version = mks_env_shape_epoch;
+    mutable_node->data.identifier.cached_env_version = mks_context_current()->env_shape_epoch;
 
     return entry->value;
 }
@@ -84,7 +90,7 @@ static void assign_cached(const ASTNode *node, Environment *env, RuntimeValue va
         ASTNode *mutable_node = (ASTNode *)node;
         mutable_node->data.assign.cached_entry = entry;
         mutable_node->data.assign.cached_env = env;
-        mutable_node->data.assign.cached_env_version = mks_env_shape_epoch;
+        mutable_node->data.assign.cached_env_version = mks_context_current()->env_shape_epoch;
     }
 
     entry->value = value;
@@ -119,8 +125,8 @@ static RuntimeValue eval_export(const ASTNode *node, Environment *env) {
     if (!env_try_get(env, "exports", get_hash("exports"), &exports_val)) {
         runtime_error("Internal: exports not found in module env");
     }
-    if (exports_val.type != VAL_OBJECT) {
-        runtime_error("Internal: exports is not object");
+    if (exports_val.type != VAL_MODULE) {
+        runtime_error("Internal: exports is not module");
     }
     env_set_fast(exports_val.data.obj_env, name, hash, res);
     return res;
@@ -201,7 +207,7 @@ static void resolve_lvalue(const ASTNode *node, Environment *env, LValue *out) {
     if (node->type == AST_INDEX) {
         RuntimeValue target = eval(node->data.index.target, env);
         RuntimeValue idxv = eval(node->data.index.index, env);
-        int idx = (int)idxv.data.float_value;
+        int idx = (int)runtime_value_as_int(idxv);
         if (target.type != VAL_ARRAY) runtime_error("Swap target is not array");
         ManagedArray *arr = target.data.managed_array;
         if (idx < 0 || idx >= arr->count) runtime_error("Swap index out of bounds");
@@ -274,16 +280,196 @@ static RuntimeValue eval_test(const ASTNode *node, Environment *env) {
     return make_null();
 }
 
+static RuntimeValue pointer_read(ManagedPointer *ptr) {
+    if (ptr == NULL) {
+        runtime_error("Cannot dereference null pointer");
+    }
+
+    switch (ptr->kind) {
+        case PTR_ENV_VAR:
+            if (ptr->as.var.entry == NULL) {
+                runtime_error("Pointer target variable no longer exists");
+            }
+            return ptr->as.var.entry->value;
+
+        case PTR_ARRAY_ELEM: {
+            ManagedArray *arr = ptr->as.array_elem.array;
+            const int index = ptr->as.array_elem.index;
+            if (arr == NULL || index < 0 || index >= arr->count) {
+                runtime_error("Array pointer index out of bounds");
+            }
+            return arr->elements[index];
+        }
+
+        case PTR_OBJECT_FIELD: {
+            RuntimeValue value;
+            if (!env_try_get(ptr->as.object_field.env,
+                             ptr->as.object_field.field,
+                             ptr->as.object_field.hash,
+                             &value)) {
+                runtime_error("Pointer target field '%s' no longer exists", ptr->as.object_field.field);
+            }
+            return value;
+        }
+    }
+
+    runtime_error("Invalid pointer target");
+    return make_null();
+}
+
+static RuntimeValue pointer_write(ManagedPointer *ptr, RuntimeValue value) {
+    if (ptr == NULL) {
+        runtime_error("Cannot assign through null pointer");
+    }
+
+    if (value.type == VAL_RETURN) {
+        value.type = value.original_type;
+    }
+
+    switch (ptr->kind) {
+        case PTR_ENV_VAR:
+            if (ptr->as.var.entry == NULL) {
+                runtime_error("Pointer target variable no longer exists");
+            }
+            ptr->as.var.entry->value = value;
+            return value;
+
+        case PTR_ARRAY_ELEM: {
+            ManagedArray *arr = ptr->as.array_elem.array;
+            const int index = ptr->as.array_elem.index;
+            if (arr == NULL || index < 0 || index >= arr->count) {
+                runtime_error("Array pointer index out of bounds");
+            }
+            arr->elements[index] = value;
+            return value;
+        }
+
+        case PTR_OBJECT_FIELD:
+            env_set_fast(ptr->as.object_field.env,
+                         ptr->as.object_field.field,
+                         ptr->as.object_field.hash,
+                         value);
+            return value;
+    }
+
+    runtime_error("Invalid pointer target");
+    return make_null();
+}
+
+static RuntimeValue eval_address_of_lvalue(const ASTNode *target, Environment *env) {
+    if (target == NULL) {
+        runtime_error("Cannot take address of empty expression");
+    }
+
+    switch (target->type) {
+        case AST_IDENTIFIER: {
+            Environment *owner = NULL;
+            EnvVar *entry = env_get_entry_with_owner(env,
+                                                     target->data.identifier.name,
+                                                     target->data.identifier.id_hash,
+                                                     &owner);
+            if (entry == NULL || owner == NULL) {
+                runtime_error("Cannot take address of undefined variable '%s'", target->data.identifier.name);
+            }
+            return make_pointer_to_var(owner, entry);
+        }
+
+        case AST_INDEX: {
+            RuntimeValue container = unwrap_return(eval(target->data.index.target, env));
+            const int container_rooted = gc_push_root_if_needed(&container);
+            if (container.type != VAL_ARRAY) {
+                if (container_rooted) gc_pop_root();
+                runtime_error("Can only take address of array elements with []");
+            }
+
+            RuntimeValue index_value = unwrap_return(eval(target->data.index.index, env));
+            const int index = (int)runtime_value_as_int(index_value);
+            ManagedArray *arr = container.data.managed_array;
+            if (arr == NULL || index < 0 || index >= arr->count) {
+                if (container_rooted) gc_pop_root();
+                runtime_error("Array pointer index out of bounds");
+            }
+
+            RuntimeValue pointer = make_pointer_to_array_elem(arr, index);
+            if (container_rooted) gc_pop_root();
+            return pointer;
+        }
+
+        case AST_OBJ_GET: {
+            RuntimeValue object = unwrap_return(eval(target->data.obj_get.object, env));
+            const int object_rooted = gc_push_root_if_needed(&object);
+            if (object.type != VAL_OBJECT && object.type != VAL_MODULE) {
+                if (object_rooted) gc_pop_root();
+                runtime_error("Can only take address of object fields");
+            }
+            if (object.type == VAL_MODULE) {
+                if (object_rooted) gc_pop_root();
+                runtime_error("Cannot take address of module export '%s'", target->data.obj_get.field);
+            }
+
+            Environment *owner = NULL;
+            EnvVar *entry = env_get_entry_with_owner(object.data.obj_env,
+                                                     target->data.obj_get.field,
+                                                     target->data.obj_get.field_hash,
+                                                     &owner);
+            if (entry == NULL || owner == NULL) {
+                if (object_rooted) gc_pop_root();
+                runtime_error("Cannot take address of missing field '%s'", target->data.obj_get.field);
+            }
+
+            RuntimeValue pointer = make_pointer_to_object_field(owner,
+                                                                target->data.obj_get.field,
+                                                                target->data.obj_get.field_hash);
+            if (object_rooted) gc_pop_root();
+            return pointer;
+        }
+
+        default:
+            runtime_error("Cannot take address of temporary expression");
+    }
+
+    return make_null();
+}
+
+static RuntimeValue eval_address_of(const ASTNode *node, Environment *env) {
+    return eval_address_of_lvalue(node->data.address_of.target, env);
+}
+
+static RuntimeValue eval_deref(const ASTNode *node, Environment *env) {
+    RuntimeValue pointer = unwrap_return(eval(node->data.deref.target, env));
+    if (pointer.type != VAL_POINTER) {
+        runtime_error("Cannot dereference non-pointer");
+    }
+    return pointer_read(pointer.data.managed_pointer);
+}
+
+static RuntimeValue eval_deref_assign(const ASTNode *node, Environment *env) {
+    RuntimeValue pointer = unwrap_return(eval(node->data.deref_assign.target, env));
+    const int pointer_rooted = gc_push_root_if_needed(&pointer);
+    if (pointer.type != VAL_POINTER) {
+        if (pointer_rooted) gc_pop_root();
+        runtime_error("Cannot assign through non-pointer");
+    }
+
+    RuntimeValue value = unwrap_return(eval(node->data.deref_assign.value, env));
+    const int value_rooted = gc_push_root_if_needed(&value);
+    RuntimeValue result = pointer_write(pointer.data.managed_pointer, value);
+
+    if (value_rooted) gc_pop_root();
+    if (pointer_rooted) gc_pop_root();
+    return result;
+}
+
 #define MKS_MAX_EVAL_DEPTH 10000
-static int eval_depth = 0;
 
 RuntimeValue eval(const ASTNode *node, Environment *env) {
-    eval_depth++;
-    if (eval_depth > MKS_MAX_EVAL_DEPTH) {
+    MKSContext *ctx = mks_context_current();
+    ctx->eval_depth++;
+    if (ctx->eval_depth > MKS_MAX_EVAL_DEPTH) {
         runtime_error("Recursion depth limit (%d) exceeded", MKS_MAX_EVAL_DEPTH);
     }
     RuntimeValue out = eval_impl(node, env);
-    eval_depth--;
+    ctx->eval_depth--;
     return out;
 }
 
@@ -297,7 +483,9 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
 
     switch (node->type) {
         case AST_NUMBER:
-            return make_int(node->data.number_value);
+            return node->data.number.kind == NUMBER_INT
+                ? make_int(node->data.number.int_value)
+                : make_float(node->data.number.float_value);
 
         case AST_STRING:
             return make_string(node->data.string_value);
@@ -374,10 +562,19 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
         case AST_INDEX_ASSIGN:
             return eval_index_assign(node, env);
 
+        case AST_ADDRESS_OF:
+            return eval_address_of(node, env);
+
+        case AST_DEREF:
+            return eval_deref(node, env);
+
+        case AST_DEREF_ASSIGN:
+            return eval_deref_assign(node, env);
+
         case AST_OBJ_GET: {
             RuntimeValue obj = eval(node->data.obj_get.object, env);
             const int obj_rooted = gc_push_root_if_needed(&obj);
-            if (obj.type != VAL_OBJECT) {
+            if (obj.type != VAL_OBJECT && obj.type != VAL_MODULE) {
                 if (obj_rooted) {
                     gc_pop_root();
                 }
@@ -387,6 +584,9 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
             if (!env_try_get(obj.data.obj_env, node->data.obj_get.field, node->data.obj_get.field_hash, &val)) {
                 if (obj_rooted) {
                     gc_pop_root();
+                }
+                if (obj.type == VAL_MODULE) {
+                    runtime_error("Module has no exported symbol '%s'", node->data.obj_get.field);
                 }
                 return make_null();
             }
@@ -399,11 +599,17 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
         case AST_OBJ_SET: {
             RuntimeValue obj = eval(node->data.obj_set.object, env);
             const int obj_rooted = gc_push_root_if_needed(&obj);
-            if (obj.type != VAL_OBJECT) {
+            if (obj.type != VAL_OBJECT && obj.type != VAL_MODULE) {
                 if (obj_rooted) {
                     gc_pop_root();
                 }
                 runtime_error("Property set on non-object");
+            }
+            if (obj.type == VAL_MODULE) {
+                if (obj_rooted) {
+                    gc_pop_root();
+                }
+                runtime_error("Cannot assign to module export '%s'", node->data.obj_set.field);
             }
             RuntimeValue val = eval(node->data.obj_set.value, env);
             env_set_fast(obj.data.obj_env, node->data.obj_set.field, node->data.obj_set.field_hash, val);

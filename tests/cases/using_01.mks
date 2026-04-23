@@ -1,6 +1,6 @@
-using "math.mks";
-Writeln(PI);
-Writeln(get_circle_area(2));
+using "math.mks" as math;
+Writeln(math.PI);
+Writeln(math.get_circle_area(2));
 
-using "math.mks"; // duplicate should be skipped
-Writeln(VERSION);
+using "math.mks" as math; // duplicate should be skipped
+Writeln(math.VERSION);
