@@ -19,6 +19,10 @@ void print_value(const RuntimeValue *val) {
             printf("%g", val->data.float_value);
             break;
 
+        case VAL_BOOL:
+            printf("%s", val->data.bool_value ? "true" : "false");
+            break;
+
         case VAL_STRING:
             if (val->data.managed_string != NULL &&
                 val->data.managed_string->data != NULL) {

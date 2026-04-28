@@ -1,0 +1,9 @@
+using test.package as pkg;
+using test.package.util.name as name;
+using helper.lib as helper;
+using helper.lib.tools.format as format;
+
+Writeln(pkg.root());
+Writeln(name.label());
+Writeln(helper.value());
+Writeln(format.name());

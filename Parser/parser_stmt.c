@@ -11,7 +11,7 @@ static ASTNode* parser_parse_func_decl(Parser *parser);
 static ASTNode* parser_parse_entity(Parser *parser);
 static ASTNode* parser_parse_extend(Parser *parser);
 
-/* --- */
+
 static ASTNode* parser_parse_var_decl(Parser *parser);
 static ASTNode* parser_parse_if(Parser *parser);
 static ASTNode* parser_parse_while(Parser *parser);
@@ -25,6 +25,7 @@ static ASTNode* parser_parse_on_change(Parser *parser);
 static ASTNode* parser_parse_break(Parser *parser);
 static ASTNode* parser_parse_continue(Parser *parser);
 static ASTNode* parser_parse_repeat(Parser *parser);
+static ASTNode* parser_parse_switch(Parser *parser);
 
 ASTNode* parser_parse_statement(Parser *parser) {
     const enum TokenType type = parser->current_token.type;
@@ -42,6 +43,9 @@ ASTNode* parser_parse_statement(Parser *parser) {
 
         case TOKEN_KW_REPEAT:
             return parser_parse_repeat(parser);
+
+        case TOKEN_KW_SWITCH:
+            return parser_parse_switch(parser);
 
         case TOKEN_KW_DEFER:
             return parser_parse_defer(parser);
@@ -148,6 +152,53 @@ static ASTNode* parser_parse_defer(Parser *parser) {
     parser_eat(parser, TOKEN_KW_DEFER);
     ASTNode *body = parser_parse_block(parser);
     return create_ast_defer(body, line);
+}
+
+static ASTNode* parser_parse_switch(Parser *parser) {
+    const int line = parser->current_token.line;
+    ASTNode **case_values = NULL;
+    ASTNode **case_bodies = NULL;
+    int case_count = 0;
+    int case_cap = 0;
+    ASTNode *default_body = NULL;
+
+    parser_eat(parser, TOKEN_KW_SWITCH);
+    parser_eat(parser, TOKEN_LPAREL);
+    ASTNode *value = parser_parse_expression(parser);
+    parser_eat(parser, TOKEN_RPAREL);
+    parser_eat(parser, TOKEN_BLOCK_START);
+
+    while (parser->current_token.type != TOKEN_BLOCK_END &&
+           parser->current_token.type != TOKEN_EOF) {
+        if (parser->current_token.type == TOKEN_KW_CASE) {
+            parser_eat(parser, TOKEN_KW_CASE);
+            ASTNode *case_value = parser_parse_expression(parser);
+            ASTNode *case_body = parser_parse_block(parser);
+            int old_case_cap = case_cap;
+            parser_push_ast(&case_values, &case_count, &case_cap, case_value);
+            if (case_bodies == NULL) {
+                case_bodies = (ASTNode **)parser_xcalloc((size_t)case_cap, sizeof(ASTNode *));
+            } else if (case_cap != old_case_cap) {
+                case_bodies = (ASTNode **)parser_xrealloc(case_bodies, sizeof(ASTNode *) * (size_t)case_cap);
+            }
+            case_bodies[case_count - 1] = case_body;
+            continue;
+        }
+
+        if (parser->current_token.type == TOKEN_KW_DEFAULT) {
+            if (default_body != NULL) {
+                parser_error(parser, "Duplicate default in switch");
+            }
+            parser_eat(parser, TOKEN_KW_DEFAULT);
+            default_body = parser_parse_block(parser);
+            continue;
+        }
+
+        parser_error(parser, "Unexpected token in switch block");
+    }
+
+    parser_eat(parser, TOKEN_BLOCK_END);
+    return create_ast_switch(value, case_values, case_bodies, case_count, default_body, line);
 }
 
 static ASTNode* parser_parse_watch(Parser *parser) {

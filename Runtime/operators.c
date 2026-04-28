@@ -18,17 +18,71 @@ static inline RuntimeValue unwrap(RuntimeValue v) {
     return v;
 }
 
-static RuntimeValue make_bool(const int value) {
-    return make_int(value ? 1 : 0);
+int runtime_value_equals(RuntimeValue left, RuntimeValue right) {
+    if (left.type == VAL_RETURN) {
+        left.type = left.original_type;
+    }
+    if (right.type == VAL_RETURN) {
+        right.type = right.original_type;
+    }
+
+    if (left.type == VAL_NULL || right.type == VAL_NULL) {
+        return left.type == VAL_NULL && right.type == VAL_NULL;
+    }
+
+    if (left.type == VAL_BOOL && right.type == VAL_BOOL) {
+        return left.data.bool_value == right.data.bool_value;
+    }
+
+    if (left.type == VAL_STRING && right.type == VAL_STRING) {
+        const char *s_l = left.data.managed_string != NULL ? left.data.managed_string->data : "";
+        const char *s_r = right.data.managed_string != NULL ? right.data.managed_string->data : "";
+        return strcmp(s_l, s_r) == 0;
+    }
+
+    if (runtime_value_is_number(left) && runtime_value_is_number(right)) {
+        if (left.type == VAL_INT && right.type == VAL_INT) {
+            return runtime_value_as_int(left) == runtime_value_as_int(right);
+        }
+        return runtime_value_as_double(left) == runtime_value_as_double(right);
+    }
+
+    if (left.type != right.type) {
+        return 0;
+    }
+
+    switch (left.type) {
+        case VAL_ARRAY:
+            return left.data.managed_array == right.data.managed_array;
+        case VAL_POINTER:
+            return left.data.managed_pointer == right.data.managed_pointer;
+        case VAL_OBJECT:
+        case VAL_MODULE:
+            return left.data.obj_env == right.data.obj_env;
+        case VAL_FUNC:
+            return left.data.func.node == right.data.func.node &&
+                   left.data.func.closure_env == right.data.func.closure_env;
+        case VAL_NATIVE_FUNC:
+            return left.data.native.fn == right.data.native.fn &&
+                   left.data.native.ctx == right.data.native.ctx;
+        case VAL_BLUEPRINT:
+            return left.data.blueprint.entity_node == right.data.blueprint.entity_node &&
+                   left.data.blueprint.closure_env == right.data.blueprint.closure_env;
+        default:
+            return 0;
+    }
 }
 
-static int is_truthy(const RuntimeValue v) {
+int runtime_value_is_truthy(RuntimeValue v) {
     switch (v.type) {
         case VAL_NULL:
             return 0;
 
         case VAL_INT:
             return v.data.int_value != 0;
+
+        case VAL_BOOL:
+            return v.data.bool_value ? 1 : 0;
 
         case VAL_FLOAT:
             return v.data.float_value != 0.0;
@@ -49,7 +103,7 @@ static int is_truthy(const RuntimeValue v) {
             return 1;
 
         case VAL_RETURN:
-            return is_truthy(unwrap(v));
+            return runtime_value_is_truthy(unwrap(v));
 
         default:
             return 0;
@@ -60,6 +114,7 @@ static const char *value_type_name(const RuntimeValue v) {
     switch (v.type) {
         case VAL_INT:         return "int";
         case VAL_FLOAT:       return "float";
+        case VAL_BOOL:        return "bool";
         case VAL_STRING:      return "string";
         case VAL_ARRAY:       return "array";
         case VAL_POINTER:     return "pointer";
@@ -110,6 +165,9 @@ static const char *value_to_cstr(const RuntimeValue v, char *buf, const size_t b
         case VAL_FLOAT:
             snprintf(buf, buf_size, "%g", v.data.float_value);
             return buf;
+
+        case VAL_BOOL:
+            return v.data.bool_value ? "true" : "false";
 
         case VAL_STRING:
             if (v.data.managed_string && v.data.managed_string->data) {
@@ -194,16 +252,16 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
     const int left_rooted = gc_push_root_if_needed(&left_val);
 
     if (op == TOKEN_AND) {
-        if (!is_truthy(left_val)) {
-            result = make_bool(0);
+        if (!runtime_value_is_truthy(left_val)) {
+            result = make_bool(false);
             if (left_rooted) {
                 gc_pop_root();
             }
             return result;
         }
     } else if (op == TOKEN_OR) {
-        if (is_truthy(left_val)) {
-            result = make_bool(1);
+        if (runtime_value_is_truthy(left_val)) {
+            result = make_bool(true);
             if (left_rooted) {
                 gc_pop_root();
             }
@@ -233,6 +291,22 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
         }
     }
 
+    if (left_val.type == VAL_NULL || right_val.type == VAL_NULL) {
+        if (op == TOKEN_EQ) {
+            result = make_bool(runtime_value_equals(left_val, right_val));
+            if (right_rooted) gc_pop_root();
+            if (left_rooted) gc_pop_root();
+            return result;
+        }
+
+        if (op == TOKEN_NOT_EQ) {
+            result = make_bool(!runtime_value_equals(left_val, right_val));
+            if (right_rooted) gc_pop_root();
+            if (left_rooted) gc_pop_root();
+            return result;
+        }
+    }
+
     if (op == TOKEN_PLUS && (left_val.type == VAL_STRING || right_val.type == VAL_STRING)) {
         result = concat_values_as_string(left_val, right_val);
         if (right_rooted) gc_pop_root();
@@ -243,10 +317,18 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
     if (op == TOKEN_AND || op == TOKEN_OR) {
         result = make_bool(
             (op == TOKEN_AND)
-                ? (is_truthy(left_val) && is_truthy(right_val))
-                : (is_truthy(left_val) || is_truthy(right_val))
+                ? (runtime_value_is_truthy(left_val) && runtime_value_is_truthy(right_val))
+                : (runtime_value_is_truthy(left_val) || runtime_value_is_truthy(right_val))
         );
 
+        if (right_rooted) gc_pop_root();
+        if (left_rooted) gc_pop_root();
+        return result;
+    }
+
+    if (op == TOKEN_EQ || op == TOKEN_NOT_EQ) {
+        const int equal = runtime_value_equals(left_val, right_val);
+        result = make_bool(op == TOKEN_EQ ? equal : !equal);
         if (right_rooted) gc_pop_root();
         if (left_rooted) gc_pop_root();
         return result;
@@ -291,11 +373,11 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
                 break;
 
             case TOKEN_EQ:
-                result = make_bool(both_int ? (li == ri) : (l == r));
+                result = make_bool(runtime_value_equals(left_val, right_val));
                 break;
 
             case TOKEN_NOT_EQ:
-                result = make_bool(both_int ? (li != ri) : (l != r));
+                result = make_bool(!runtime_value_equals(left_val, right_val));
                 break;
 
             case TOKEN_LESS:

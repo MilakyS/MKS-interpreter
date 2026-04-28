@@ -46,6 +46,14 @@ RuntimeValue make_float(const double val) {
     return v;
 }
 
+RuntimeValue make_bool(const bool val) {
+    RuntimeValue v;
+    v.type = VAL_BOOL;
+    v.original_type = VAL_BOOL;
+    v.data.bool_value = val;
+    return v;
+}
+
 int runtime_value_is_number(RuntimeValue val) {
     if (val.type == VAL_RETURN) {
         val.type = val.original_type;
@@ -62,6 +70,9 @@ double runtime_value_as_double(RuntimeValue val) {
     if (val.type == VAL_INT) {
         return (double)val.data.int_value;
     }
+    if (val.type == VAL_BOOL) {
+        return val.data.bool_value ? 1.0 : 0.0;
+    }
     if (val.type == VAL_FLOAT) {
         return val.data.float_value;
     }
@@ -75,6 +86,9 @@ int64_t runtime_value_as_int(RuntimeValue val) {
 
     if (val.type == VAL_INT) {
         return val.data.int_value;
+    }
+    if (val.type == VAL_BOOL) {
+        return val.data.bool_value ? 1 : 0;
     }
     if (val.type == VAL_FLOAT) {
         return (int64_t)val.data.float_value;

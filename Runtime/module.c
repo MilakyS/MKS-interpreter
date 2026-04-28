@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <stdint.h>
 #include <libgen.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -57,6 +58,16 @@ typedef struct ProgramNode {
     struct ProgramNode *next;
 } ProgramNode;
 
+typedef struct PackageManifest {
+    char name[PATH_MAX];
+    char main_path[PATH_MAX];
+    char lib_path[PATH_MAX];
+    int has_name;
+    int has_main;
+    int has_lib;
+    int is_legacy_toml;
+} PackageManifest;
+
 static NativeModule **native_registry_slot(void) {
     return (NativeModule **)&mks_context_current()->module_native_registry;
 }
@@ -80,24 +91,34 @@ static ModuleDescriptor builtin_modules[] = {
     { "std.random", MODULE_KIND_NATIVE, NULL, NULL },
     { "std.watch",  MODULE_KIND_NATIVE, NULL, NULL },
     { "std.fs",     MODULE_KIND_NATIVE, NULL, NULL },
+    { "std.json",   MODULE_KIND_NATIVE, NULL, NULL },
+    { "std.path",   MODULE_KIND_NATIVE, NULL, NULL },
+    { "std.process",MODULE_KIND_NATIVE, NULL, NULL },
+    { "std.io",     MODULE_KIND_NATIVE, NULL, NULL },
     { "std.string", MODULE_KIND_FILE,   NULL, "std/string.mks" },
     { "std.array",  MODULE_KIND_FILE,   NULL, "std/array.mks" },
-    { "std.bool",   MODULE_KIND_FILE,   NULL, "std/bool.mks" },
     { "std",        MODULE_KIND_FILE,   NULL, "std/std.mks" },
     { NULL, MODULE_KIND_NATIVE, NULL, NULL }
 };
 
 static int try_realpath(const char *candidate, char *out);
+static char *read_module_source(const char *path);
 static RuntimeValue load_script(const char *abs_path);
 static LoadedModule *find_loaded(const char *key);
 static LoadedModule *remember_loaded(const char *key, RuntimeValue exports, Environment *env, int loading);
 static int make_module_id_path(const char *module_id, char *out);
+static int make_builtin_module_path(const char *path, char *out);
 static void normalize_spec_to_id(const char *spec, char *out, size_t out_size);
 static int bind_module_alias(Environment *env, const char *alias, RuntimeValue exports);
 static int path_exists(const char *path);
+static int path_is_regular_file(const char *path);
+static int has_suffix(const char *text, const char *suffix);
+static int mkspkg_entry_exists(const char *archive_path, const char *entry_path);
+static int split_virtual_path(const char *path, char *archive_out, size_t archive_size, const char **entry_out);
+static int resolve_virtual_relative_path(const char *current_file, const char *path, char *out);
 static int path_dirname(const char *path, char *out, size_t out_size);
 static int find_package_root_for(const char *file_path, char *out, size_t out_size);
-static int read_package_name(const char *package_root, char *out, size_t out_size);
+static int read_package_manifest(const char *package_root, PackageManifest *manifest);
 static int resolve_package_import(const char *spec, char *out, size_t out_size);
 static int trim_path_components(char *path, const char *relative_path);
 static int try_exec_relative_std_path(const char *exec_dir, const char *module_path, char *out);
@@ -152,8 +173,8 @@ static LoadedModule *remember_loaded(const char *key, RuntimeValue exports, Envi
     m->next = loaded_modules;
     loaded_modules = m;
 
-    /* Pin module environment so GC cannot collect it even если alias пропущен/занят. */
-    gc_push_env(env);
+    /* Pin module environment for the whole context lifetime. */
+    gc_pin_env(env);
     return m;
 }
 
@@ -170,6 +191,9 @@ void module_free_all(void) {
     LoadedModule *lm = loaded_modules;
     while (lm != NULL) {
         LoadedModule *next = lm->next;
+        if (lm->env != NULL) {
+            gc_unpin_env(lm->env);
+        }
         free(lm->key);
         free(lm);
         lm = next;
@@ -291,6 +315,11 @@ static int make_absolute_path(const char *path, char *out) {
 
     const char *current_file = runtime_current_file();
     if (current_file != NULL) {
+        if ((strncmp(path, "./", 2) == 0 || strncmp(path, "../", 3) == 0) &&
+            resolve_virtual_relative_path(current_file, path, out)) {
+            return 1;
+        }
+
         const char *slash = strrchr(current_file, '/');
         if (slash != NULL) {
             size_t dir_len = (size_t)(slash - current_file);
@@ -339,6 +368,52 @@ static int make_absolute_path(const char *path, char *out) {
         if (snprintf(tmp_out, PATH_MAX, "%s/%s", system_std_paths[i], with_ext) < PATH_MAX &&
             try_realpath(tmp_out, out)) return 1;
     }
+    return 0;
+}
+
+static int make_builtin_module_path(const char *path, char *out) {
+    if (path == NULL) return 0;
+
+    char with_ext[PATH_MAX];
+    if (!append_ext_if_missing(path, with_ext, sizeof(with_ext))) {
+        return 0;
+    }
+
+    const char *base = get_exec_dir();
+    if (base && base[0]) {
+        if (try_exec_relative_std_path(base, with_ext, out)) return 1;
+
+        char tmp_out[PATH_MAX];
+        if (snprintf(tmp_out, PATH_MAX, "%s/%s", base, with_ext) < PATH_MAX &&
+            try_realpath(tmp_out, out)) return 1;
+
+        char parent[PATH_MAX];
+        if (snprintf(parent, PATH_MAX, "%s/..", base) < PATH_MAX) {
+            if (snprintf(tmp_out, PATH_MAX, "%s/%s", parent, with_ext) < PATH_MAX &&
+                try_realpath(tmp_out, out)) return 1;
+        }
+    }
+
+    const char *env_std = getenv("MKS_STD_PATH");
+    if (env_std && env_std[0]) {
+        char tmp_out[PATH_MAX];
+        if (snprintf(tmp_out, PATH_MAX, "%s/%s", env_std, with_ext) < PATH_MAX &&
+            try_realpath(tmp_out, out)) return 1;
+    }
+
+    {
+        char tmp_out[PATH_MAX];
+        if (snprintf(tmp_out, sizeof(tmp_out), "%s/%s", MKS_INSTALL_STDLIB_DIR_ABS, with_ext) < (int)sizeof(tmp_out) &&
+            try_realpath(tmp_out, out)) return 1;
+    }
+
+    static const char *system_std_paths[] = {"/usr/local/share/mks", "/usr/share/mks", NULL};
+    for (int i = 0; system_std_paths[i] != NULL; i++) {
+        char tmp_out[PATH_MAX];
+        if (snprintf(tmp_out, PATH_MAX, "%s/%s", system_std_paths[i], with_ext) < PATH_MAX &&
+            try_realpath(tmp_out, out)) return 1;
+    }
+
     return 0;
 }
 
@@ -396,6 +471,232 @@ static int path_exists(const char *path) {
     return path != NULL && stat(path, &st) == 0;
 }
 
+static int path_is_regular_file(const char *path) {
+    struct stat st;
+    return path != NULL && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static int has_suffix(const char *text, const char *suffix) {
+    size_t text_len = strlen(text);
+    size_t suffix_len = strlen(suffix);
+    return text_len >= suffix_len && strcmp(text + text_len - suffix_len, suffix) == 0;
+}
+
+static int read_u32_le(FILE *f, uint32_t *out) {
+    unsigned char b[4];
+    if (fread(b, 1, sizeof(b), f) != sizeof(b)) {
+        return 0;
+    }
+    *out = ((uint32_t)b[0]) |
+           ((uint32_t)b[1] << 8) |
+           ((uint32_t)b[2] << 16) |
+           ((uint32_t)b[3] << 24);
+    return 1;
+}
+
+static int read_u64_le(FILE *f, uint64_t *out) {
+    unsigned char b[8];
+    if (fread(b, 1, sizeof(b), f) != sizeof(b)) {
+        return 0;
+    }
+    *out = ((uint64_t)b[0]) |
+           ((uint64_t)b[1] << 8) |
+           ((uint64_t)b[2] << 16) |
+           ((uint64_t)b[3] << 24) |
+           ((uint64_t)b[4] << 32) |
+           ((uint64_t)b[5] << 40) |
+           ((uint64_t)b[6] << 48) |
+           ((uint64_t)b[7] << 56);
+    return 1;
+}
+
+static char *read_mkspkg_entry(const char *archive_path, const char *entry_path) {
+    FILE *f = fopen(archive_path, "rb");
+    if (f == NULL) {
+        return NULL;
+    }
+
+    char magic[8];
+    if (fread(magic, 1, sizeof(magic), f) != sizeof(magic) ||
+        memcmp(magic, "MKSPKG1\n", sizeof(magic)) != 0) {
+        fclose(f);
+        return NULL;
+    }
+
+    while (1) {
+        uint32_t path_len = 0;
+        uint64_t size = 0;
+        if (!read_u32_le(f, &path_len)) {
+            break;
+        }
+        if (path_len == 0) {
+            fclose(f);
+            return NULL;
+        }
+        if (path_len >= PATH_MAX || !read_u64_le(f, &size)) {
+            break;
+        }
+
+        char path[PATH_MAX];
+        if (fread(path, 1, path_len, f) != path_len) {
+            break;
+        }
+        path[path_len] = '\0';
+
+        if (strcmp(path, entry_path) == 0) {
+            if (size > SIZE_MAX - 1) {
+                break;
+            }
+            char *data = (char *)malloc((size_t)size + 1);
+            if (data == NULL) {
+                fclose(f);
+                runtime_error("Out of memory reading package archive entry");
+            }
+            if (fread(data, 1, (size_t)size, f) != (size_t)size) {
+                free(data);
+                break;
+            }
+            data[size] = '\0';
+            fclose(f);
+            return data;
+        }
+
+        if (size > LONG_MAX || fseek(f, (long)size, SEEK_CUR) != 0) {
+            break;
+        }
+    }
+
+    fclose(f);
+    return NULL;
+}
+
+static int mkspkg_entry_exists(const char *archive_path, const char *entry_path) {
+    char *entry = read_mkspkg_entry(archive_path, entry_path);
+    if (entry == NULL) {
+        return 0;
+    }
+    free(entry);
+    return 1;
+}
+
+static int split_virtual_path(const char *path, char *archive_out, size_t archive_size, const char **entry_out) {
+    const char *sep = strstr(path, "::");
+    if (sep == NULL) {
+        return 0;
+    }
+    size_t archive_len = (size_t)(sep - path);
+    if (archive_len == 0 || archive_len >= archive_size) {
+        return 0;
+    }
+    memcpy(archive_out, path, archive_len);
+    archive_out[archive_len] = '\0';
+    *entry_out = sep + 2;
+    return **entry_out != '\0';
+}
+
+static int normalize_virtual_entry_path(const char *base_entry, const char *relative_path, char *out) {
+    char with_ext[PATH_MAX];
+    if (has_suffix(relative_path, ".mks")) {
+        if (snprintf(with_ext, sizeof(with_ext), "%s", relative_path) >= (int)sizeof(with_ext)) {
+            return 0;
+        }
+    } else if (snprintf(with_ext, sizeof(with_ext), "%s.mks", relative_path) >= (int)sizeof(with_ext)) {
+        return 0;
+    }
+
+    char base_dir[PATH_MAX] = "";
+    const char *slash = strrchr(base_entry, '/');
+    if (slash != NULL) {
+        size_t len = (size_t)(slash - base_entry);
+        if (len >= sizeof(base_dir)) {
+            return 0;
+        }
+        memcpy(base_dir, base_entry, len);
+        base_dir[len] = '\0';
+    }
+
+    char combined[PATH_MAX];
+    if (base_dir[0] != '\0') {
+        if (snprintf(combined, sizeof(combined), "%s/%s", base_dir, with_ext) >= (int)sizeof(combined)) {
+            return 0;
+        }
+    } else if (snprintf(combined, sizeof(combined), "%s", with_ext) >= (int)sizeof(combined)) {
+        return 0;
+    }
+
+    char scratch[PATH_MAX];
+    strncpy(scratch, combined, sizeof(scratch) - 1);
+    scratch[sizeof(scratch) - 1] = '\0';
+
+    char *parts[128];
+    int part_count = 0;
+    char *saveptr = NULL;
+    char *part = strtok_r(scratch, "/", &saveptr);
+    while (part != NULL) {
+        if (strcmp(part, ".") == 0 || part[0] == '\0') {
+            /* skip */
+        } else if (strcmp(part, "..") == 0) {
+            if (part_count == 0) {
+                return 0;
+            }
+            part_count--;
+        } else {
+            if (part_count >= (int)(sizeof(parts) / sizeof(parts[0]))) {
+                return 0;
+            }
+            parts[part_count++] = part;
+        }
+        part = strtok_r(NULL, "/", &saveptr);
+    }
+
+    size_t used = 0;
+    out[0] = '\0';
+    for (int i = 0; i < part_count; i++) {
+        size_t len = strlen(parts[i]);
+        if (used + len + (i > 0 ? 1 : 0) + 1 > PATH_MAX) {
+            return 0;
+        }
+        if (i > 0) {
+            out[used++] = '/';
+        }
+        memcpy(out + used, parts[i], len);
+        used += len;
+        out[used] = '\0';
+    }
+
+    return used > 0;
+}
+
+static int resolve_virtual_relative_path(const char *current_file, const char *path, char *out) {
+    char archive_path[PATH_MAX];
+    const char *entry_path = NULL;
+    if (!split_virtual_path(current_file, archive_path, sizeof(archive_path), &entry_path)) {
+        return 0;
+    }
+
+    char normalized_entry[PATH_MAX];
+    if (!normalize_virtual_entry_path(entry_path, path, normalized_entry)) {
+        return 0;
+    }
+    if (!mkspkg_entry_exists(archive_path, normalized_entry)) {
+        return 0;
+    }
+    return snprintf(out, PATH_MAX, "%s::%s", archive_path, normalized_entry) < PATH_MAX;
+}
+
+static char *read_module_source(const char *path) {
+    char archive_path[PATH_MAX];
+    const char *entry_path = NULL;
+    if (split_virtual_path(path, archive_path, sizeof(archive_path), &entry_path)) {
+        char *source = read_mkspkg_entry(archive_path, entry_path);
+        if (source == NULL) {
+            runtime_error("Could not read package archive entry '%s' from '%s'", entry_path, archive_path);
+        }
+        return source;
+    }
+    return mks_read_file(path);
+}
+
 static int path_dirname(const char *path, char *out, size_t out_size) {
     if (path == NULL || out == NULL || out_size == 0) {
         return 0;
@@ -432,6 +733,14 @@ static int find_package_root_for(const char *file_path, char *out, size_t out_si
 
     while (1) {
         char manifest[PATH_MAX];
+        if (snprintf(manifest, sizeof(manifest), "%s/package.pkg", dir) < (int)sizeof(manifest) &&
+            path_exists(manifest)) {
+            if (strlen(dir) + 1 > out_size) {
+                return 0;
+            }
+            strcpy(out, dir);
+            return 1;
+        }
         if (snprintf(manifest, sizeof(manifest), "%s/mks.toml", dir) < (int)sizeof(manifest) &&
             path_exists(manifest)) {
             if (strlen(dir) + 1 > out_size) {
@@ -458,19 +767,40 @@ static int find_package_root_for(const char *file_path, char *out, size_t out_si
     return 0;
 }
 
-static int read_package_name(const char *package_root, char *out, size_t out_size) {
-    char manifest_path[PATH_MAX];
-    if (snprintf(manifest_path, sizeof(manifest_path), "%s/mks.toml", package_root) >= (int)sizeof(manifest_path)) {
+static void package_manifest_init(PackageManifest *manifest) {
+    memset(manifest, 0, sizeof(*manifest));
+}
+
+static int read_quoted_field(const char *line, const char *field, char *out, size_t out_size) {
+    size_t field_len = strlen(field);
+    if (strncmp(line, field, field_len) != 0) {
         return 0;
     }
 
-    char *manifest = mks_read_file(manifest_path);
-    if (manifest == NULL) {
+    char next = line[field_len];
+    if (next != '\0' && next != ' ' && next != '\t' && next != '=') {
         return 0;
     }
 
-    int found = 0;
-    char *cursor = manifest;
+    const char *quote1 = strchr(line + field_len, '"');
+    const char *quote2 = quote1 != NULL ? strchr(quote1 + 1, '"') : NULL;
+    if (quote1 == NULL || quote2 == NULL || quote2 <= quote1 + 1) {
+        return 0;
+    }
+
+    size_t len = (size_t)(quote2 - quote1 - 1);
+    if (len >= out_size) {
+        len = out_size - 1;
+    }
+    memcpy(out, quote1 + 1, len);
+    out[len] = '\0';
+    return 1;
+}
+
+static void parse_manifest_source(char *source, PackageManifest *manifest, int is_legacy_toml) {
+    manifest->is_legacy_toml = is_legacy_toml;
+
+    char *cursor = source;
     while (*cursor != '\0') {
         char *line_end = strchr(cursor, '\n');
         if (line_end != NULL) {
@@ -481,22 +811,18 @@ static int read_package_name(const char *package_root, char *out, size_t out_siz
             cursor++;
         }
 
-        if (strncmp(cursor, "name", 4) == 0) {
-            char *eq = strchr(cursor, '=');
-            if (eq != NULL) {
-                char *quote1 = strchr(eq, '"');
-                char *quote2 = quote1 != NULL ? strchr(quote1 + 1, '"') : NULL;
-                if (quote1 != NULL && quote2 != NULL && quote2 > quote1 + 1) {
-                    size_t len = (size_t)(quote2 - quote1 - 1);
-                    if (len >= out_size) {
-                        len = out_size - 1;
-                    }
-                    memcpy(out, quote1 + 1, len);
-                    out[len] = '\0';
-                    found = 1;
-                    break;
-                }
-            }
+        if (*cursor == '#' || *cursor == '\0') {
+            /* ignore comment/empty lines */
+        } else if (!is_legacy_toml && read_quoted_field(cursor, "package", manifest->name, sizeof(manifest->name))) {
+            manifest->has_name = 1;
+        } else if (read_quoted_field(cursor, "name", manifest->name, sizeof(manifest->name))) {
+            manifest->has_name = 1;
+        } else if (read_quoted_field(cursor, "main", manifest->main_path, sizeof(manifest->main_path))) {
+            manifest->has_main = 1;
+        } else if (read_quoted_field(cursor, "entry", manifest->main_path, sizeof(manifest->main_path))) {
+            manifest->has_main = 1;
+        } else if (read_quoted_field(cursor, "lib", manifest->lib_path, sizeof(manifest->lib_path))) {
+            manifest->has_lib = 1;
         }
 
         if (line_end == NULL) {
@@ -504,9 +830,151 @@ static int read_package_name(const char *package_root, char *out, size_t out_siz
         }
         cursor = line_end + 1;
     }
+}
 
-    free(manifest);
-    return found;
+static int read_package_manifest(const char *package_root, PackageManifest *manifest) {
+    package_manifest_init(manifest);
+
+    if (has_suffix(package_root, ".mkspkg") && path_is_regular_file(package_root)) {
+        char *source = read_mkspkg_entry(package_root, "package.pkg");
+        if (source != NULL) {
+            parse_manifest_source(source, manifest, 0);
+            free(source);
+            return manifest->has_name;
+        }
+    }
+
+    char manifest_path[PATH_MAX];
+    if (snprintf(manifest_path, sizeof(manifest_path), "%s/package.pkg", package_root) < (int)sizeof(manifest_path) &&
+        path_exists(manifest_path)) {
+        char *source = mks_read_file(manifest_path);
+        if (source != NULL) {
+            parse_manifest_source(source, manifest, 0);
+            free(source);
+            return manifest->has_name;
+        }
+    }
+
+    if (snprintf(manifest_path, sizeof(manifest_path), "%s/mks.toml", package_root) < (int)sizeof(manifest_path) &&
+        path_exists(manifest_path)) {
+        char *source = mks_read_file(manifest_path);
+        if (source != NULL) {
+            parse_manifest_source(source, manifest, 1);
+            free(source);
+            return manifest->has_name;
+        }
+    }
+
+    return 0;
+}
+
+static int try_package_file(const char *package_root, const char *relative_path, char *out) {
+    if (has_suffix(package_root, ".mkspkg") && path_is_regular_file(package_root)) {
+        if (!mkspkg_entry_exists(package_root, relative_path)) {
+            return 0;
+        }
+        return snprintf(out, PATH_MAX, "%s::%s", package_root, relative_path) < PATH_MAX;
+    }
+
+    char candidate[PATH_MAX];
+    if (snprintf(candidate, sizeof(candidate), "%s/%s", package_root, relative_path) >= (int)sizeof(candidate)) {
+        return 0;
+    }
+    return try_realpath(candidate, out);
+}
+
+static int resolve_package_root_file(const char *package_root, const PackageManifest *manifest, char *out) {
+    if (manifest->has_lib && try_package_file(package_root, manifest->lib_path, out)) {
+        return 1;
+    }
+    if (!manifest->is_legacy_toml && try_package_file(package_root, "src/lib.mks", out)) {
+        return 1;
+    }
+    if (manifest->has_main && try_package_file(package_root, manifest->main_path, out)) {
+        return 1;
+    }
+    return try_package_file(package_root, "src/main.mks", out);
+}
+
+static int resolve_package_submodule_file(const char *package_root, const char *suffix, char *out) {
+    char module_suffix[PATH_MAX];
+    if (!make_module_id_path(suffix, module_suffix)) {
+        return 0;
+    }
+
+    char relative_path[PATH_MAX];
+    if (snprintf(relative_path, sizeof(relative_path), "src/%s", module_suffix) >= (int)sizeof(relative_path)) {
+        return 0;
+    }
+    return try_package_file(package_root, relative_path, out);
+}
+
+static int package_consumer_root(const char *package_root, char *out, size_t out_size) {
+    char modules_dir[PATH_MAX];
+    if (!path_dirname(package_root, modules_dir, sizeof(modules_dir))) {
+        return 0;
+    }
+
+    const char *base = strrchr(modules_dir, '/');
+    base = base != NULL ? base + 1 : modules_dir;
+    if (strcmp(base, "mks_modules") != 0) {
+        return 0;
+    }
+
+    char consumer_root[PATH_MAX];
+    if (!path_dirname(modules_dir, consumer_root, sizeof(consumer_root))) {
+        return 0;
+    }
+    if (strlen(consumer_root) + 1 > out_size) {
+        return 0;
+    }
+    strcpy(out, consumer_root);
+    return 1;
+}
+
+static int try_external_package_from_root(const char *root, const char *package_name, PackageManifest *manifest, char *dep_root) {
+    int found_dep = 0;
+
+    if (snprintf(dep_root, PATH_MAX, "%s/%s.mkspkg", root, package_name) < PATH_MAX &&
+        read_package_manifest(dep_root, manifest)) {
+        if (!manifest->has_name || strcmp(manifest->name, package_name) == 0) {
+            found_dep = 1;
+        }
+    }
+
+    if (!found_dep &&
+        snprintf(dep_root, PATH_MAX, "%s/%s", root, package_name) < PATH_MAX &&
+        read_package_manifest(dep_root, manifest)) {
+        if (!manifest->has_name || strcmp(manifest->name, package_name) == 0) {
+            found_dep = 1;
+        }
+    }
+
+    if (!found_dep &&
+        snprintf(dep_root, PATH_MAX, "%s/mks_modules/%s.mkspkg", root, package_name) < PATH_MAX &&
+        read_package_manifest(dep_root, manifest)) {
+        if (!manifest->has_name || strcmp(manifest->name, package_name) == 0) {
+            found_dep = 1;
+        }
+    }
+
+    if (!found_dep &&
+        snprintf(dep_root, PATH_MAX, "%s/mks_modules/%s", root, package_name) < PATH_MAX &&
+        read_package_manifest(dep_root, manifest)) {
+        if (!manifest->has_name || strcmp(manifest->name, package_name) == 0) {
+            found_dep = 1;
+        }
+    }
+
+    if (!found_dep &&
+        snprintf(dep_root, PATH_MAX, "%s/packages/%s", root, package_name) < PATH_MAX &&
+        read_package_manifest(dep_root, manifest)) {
+        if (!manifest->has_name || strcmp(manifest->name, package_name) == 0) {
+            found_dep = 1;
+        }
+    }
+
+    return found_dep;
 }
 
 static int resolve_package_import(const char *spec, char *out, size_t out_size) {
@@ -517,40 +985,67 @@ static int resolve_package_import(const char *spec, char *out, size_t out_size) 
         return 0;
     }
 
-    char package_root[PATH_MAX];
-    if (!find_package_root_for(current_file, package_root, sizeof(package_root))) {
-        return 0;
+    char current_real[PATH_MAX];
+    if (!strstr(current_file, "::") && try_realpath(current_file, current_real)) {
+        current_file = current_real;
     }
 
-    char current_package_name[PATH_MAX] = "";
-    (void)read_package_name(package_root, current_package_name, sizeof(current_package_name));
+    char package_root[PATH_MAX];
+    const char *virtual_entry = NULL;
+    if (split_virtual_path(current_file, package_root, sizeof(package_root), &virtual_entry)) {
+        /* archive path is the package root */
+    } else if (!find_package_root_for(current_file, package_root, sizeof(package_root))) {
+        if (!path_dirname(current_file, package_root, sizeof(package_root))) {
+            return 0;
+        }
+    }
+
+    PackageManifest manifest;
+    int has_manifest = read_package_manifest(package_root, &manifest);
+
+    char external_roots[3][PATH_MAX];
+    int external_root_count = 0;
+
+    if (virtual_entry != NULL && path_is_regular_file(package_root)) {
+        if (path_dirname(package_root, external_roots[external_root_count], PATH_MAX)) {
+            external_root_count++;
+        }
+    } else {
+        snprintf(external_roots[external_root_count], PATH_MAX, "%s", package_root);
+        external_root_count++;
+    }
+
+    char consumer_root[PATH_MAX];
+    if (package_consumer_root(package_root, consumer_root, sizeof(consumer_root)) &&
+        strcmp(consumer_root, package_root) != 0) {
+        int duplicate = 0;
+        for (int i = 0; i < external_root_count; i++) {
+            if (strcmp(external_roots[i], consumer_root) == 0) {
+                duplicate = 1;
+                break;
+            }
+        }
+        if (!duplicate && external_root_count < (int)(sizeof(external_roots) / sizeof(external_roots[0]))) {
+            snprintf(external_roots[external_root_count], PATH_MAX, "%s", consumer_root);
+            external_root_count++;
+        }
+    }
 
     const char *suffix = NULL;
-    if (current_package_name[0] != '\0') {
-        const size_t pkg_len = strlen(current_package_name);
-        if (strcmp(spec, current_package_name) == 0) {
+    if (has_manifest && manifest.has_name) {
+        const size_t pkg_len = strlen(manifest.name);
+        if (strcmp(spec, manifest.name) == 0) {
             suffix = "";
-        } else if (strncmp(spec, current_package_name, pkg_len) == 0 && spec[pkg_len] == '.') {
+        } else if (strncmp(spec, manifest.name, pkg_len) == 0 && spec[pkg_len] == '.') {
             suffix = spec + pkg_len + 1;
         }
     }
 
     if (suffix != NULL) {
-        char rel_module[PATH_MAX];
         if (suffix[0] == '\0') {
-            if (snprintf(rel_module, sizeof(rel_module), "%s/src/main.mks", package_root) >= (int)sizeof(rel_module)) {
-                return 0;
-            }
-        } else {
-            char module_suffix[PATH_MAX];
-            if (!make_module_id_path(suffix, module_suffix)) {
-                return 0;
-            }
-            if (snprintf(rel_module, sizeof(rel_module), "%s/src/%s", package_root, module_suffix) >= (int)sizeof(rel_module)) {
-                return 0;
-            }
+            return resolve_package_root_file(package_root, &manifest, out);
         }
-        return try_realpath(rel_module, out);
+        return resolve_package_submodule_file(package_root, suffix, out);
     }
 
     char spec_copy[PATH_MAX];
@@ -589,18 +1084,24 @@ static int resolve_package_import(const char *spec, char *out, size_t out_size) 
             continue;
         }
 
-        char manifest_path[PATH_MAX];
-        if (snprintf(manifest_path, sizeof(manifest_path), "%s/packages/%s/mks.toml", package_root, package_name) >= (int)sizeof(manifest_path)) {
-            continue;
+        PackageManifest dep_manifest;
+        char dep_root[PATH_MAX];
+        int found_dep = 0;
+
+        for (int root_i = 0; root_i < external_root_count; root_i++) {
+            if (try_external_package_from_root(external_roots[root_i], package_name, &dep_manifest, dep_root)) {
+                found_dep = 1;
+                break;
+            }
         }
-        if (!path_exists(manifest_path)) {
+
+        if (!found_dep) {
             continue;
         }
 
-        char candidate[PATH_MAX];
         if (prefix_len == segment_count) {
-            if (snprintf(candidate, sizeof(candidate), "%s/packages/%s/src/main.mks", package_root, package_name) >= (int)sizeof(candidate)) {
-                continue;
+            if (resolve_package_root_file(dep_root, &dep_manifest, out)) {
+                return 1;
             }
         } else {
             char module_name[PATH_MAX] = "";
@@ -622,17 +1123,9 @@ static int resolve_package_import(const char *spec, char *out, size_t out_size) 
                 continue;
             }
 
-            char module_rel[PATH_MAX];
-            if (!make_module_id_path(module_name, module_rel)) {
-                continue;
+            if (resolve_package_submodule_file(dep_root, module_name, out)) {
+                return 1;
             }
-            if (snprintf(candidate, sizeof(candidate), "%s/packages/%s/src/%s", package_root, package_name, module_rel) >= (int)sizeof(candidate)) {
-                continue;
-            }
-        }
-
-        if (try_realpath(candidate, out)) {
-            return 1;
         }
     }
 
@@ -678,7 +1171,7 @@ static RuntimeValue eval_module_program(const ASTNode *program, Environment *mod
 }
 
 static RuntimeValue load_script(const char *abs_path) {
-    char *source = mks_read_file(abs_path);
+    char *source = read_module_source(abs_path);
     if (source == NULL) runtime_error("Could not read file '%s'", abs_path);
 
     const char *prev_file = runtime_push_file(abs_path);
@@ -786,7 +1279,7 @@ RuntimeValue module_import(const char *spec, const char *alias, bool is_legacy_p
             return exports;
         } else { /* MODULE_KIND_FILE */
             char abs_path[PATH_MAX];
-            if (!make_absolute_path(desc->file_path, abs_path)) {
+            if (!make_builtin_module_path(desc->file_path, abs_path)) {
                 runtime_error("Cannot resolve module file '%s' for '%s'", desc->file_path, desc->id);
             }
             LoadedModule *lm = find_loaded(abs_path);

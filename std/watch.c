@@ -59,6 +59,7 @@ void watch_register_handler(const char *name, unsigned int hash, const ASTNode *
     wh->callable.type = VAL_NULL;
     wh->next = watch_head;
     watch_head = wh;
+    gc_pin_env(env);
 }
 
 void watch_register_callable(const char *name, unsigned int hash, RuntimeValue callable) {
@@ -71,6 +72,7 @@ void watch_register_callable(const char *name, unsigned int hash, RuntimeValue c
     wh->callable = callable;
     wh->next = watch_head;
     watch_head = wh;
+    gc_pin_root_if_needed(&wh->callable);
 }
 
 static void invoke_callable(RuntimeValue callable, const RuntimeValue *value, Environment *env) {
@@ -120,6 +122,10 @@ void watch_clear_all(void) {
     WatchHandler *cur = watch_head;
     while (cur) {
         WatchHandler *next = cur->next;
+        if (cur->env != NULL) {
+            gc_unpin_env(cur->env);
+        }
+        gc_unpin_root_if_needed(&cur->callable);
         free(cur->name);
         free(cur);
         cur = next;

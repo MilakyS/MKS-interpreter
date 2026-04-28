@@ -1,0 +1,4 @@
+err true
+hello 42 ok
+word
+rest of line

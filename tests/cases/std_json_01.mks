@@ -1,0 +1,16 @@
+using std.json as json;
+
+var v =: json.parse("{\"name\":\"mks\",\"n\":2,\"ok\":true,\"none\":null,\"xs\":[1,\"x\",false]}");
+Writeln(v.name);
+Writeln(v.n);
+Writeln(v.ok);
+Writeln(v.none ?= null);
+Writeln(v.xs[0]);
+Writeln(v.xs[1]);
+Writeln(v.xs[2]);
+
+var obj =: Object();
+obj.b =: null;
+obj.a =: 1;
+Writeln(json.stringify([1, "x", null]));
+Writeln(json.stringify(obj));

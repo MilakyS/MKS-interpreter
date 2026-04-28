@@ -5,7 +5,7 @@ set -u
 export ASAN_OPTIONS=detect_leaks=0
 
 BIN="./build/mks"
-TEST_DIR="./tests/cases"
+TEST_DIRS=("./tests/cases" "./tests/modules")
 EXPECTED_DIR="./tests/expected"
 
 passed=0
@@ -27,7 +27,11 @@ run_test() {
   expected_file="$EXPECTED_DIR/${test_name}.txt"
   output_file="$(mktemp)"
 
-  "$BIN" "$input_file" >"$output_file" 2>&1
+  if [ "$test_name" = "std_io_01" ]; then
+    printf 'word\nrest of line\n' | "$BIN" "$input_file" >"$output_file" 2>&1
+  else
+    "$BIN" "$input_file" >"$output_file" 2>&1
+  fi
   local exit_code=$?
 
   if [ ! -f "$expected_file" ]; then
@@ -56,9 +60,22 @@ run_test() {
   rm -f "$output_file"
 }
 
-while IFS= read -r -d '' file; do
-  run_test "$file"
-done < <(find "$TEST_DIR" -type f -name "*.mks" -print0 | sort -z)
+for test_dir in "${TEST_DIRS[@]}"; do
+  if [ ! -d "$test_dir" ]; then
+    continue
+  fi
+  if [ "$test_dir" = "./tests/modules" ]; then
+    while IFS= read -r -d '' file; do
+      run_test "$file"
+    done < <(find "$test_dir" \
+      \( -path "*/src/*" -o -path "*/mks_modules/*" \) -prune -o \
+      -type f -name "*.mks" -print0 | sort -z)
+  else
+    while IFS= read -r -d '' file; do
+      run_test "$file"
+    done < <(find "$test_dir" -type f -name "*.mks" -print0 | sort -z)
+  fi
+done
 
 echo
 echo "Passed: $passed"

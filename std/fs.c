@@ -20,8 +20,8 @@
 
 #define fs_module_env (mks_context_current()->fs_module_env)
 
-static inline RuntimeValue make_bool(int cond) {
-    return make_int(cond ? 1 : 0);
+static inline RuntimeValue fs_bool(int cond) {
+    return make_bool(cond != 0);
 }
 
 static const char *expect_path(const RuntimeValue *v) {
@@ -69,7 +69,7 @@ static RuntimeValue n_exists(MKSContext *ctx, const RuntimeValue *args, int arg_
     (void)ctx;
     if (arg_count != 1) runtime_error("exists expects 1 arg");
     const char *p = expect_path(&args[0]);
-    return make_bool(access(p, F_OK) == 0);
+    return fs_bool(access(p, F_OK) == 0);
 }
 
 static RuntimeValue n_read(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
@@ -120,7 +120,7 @@ static RuntimeValue n_remove(MKSContext *ctx, const RuntimeValue *args, int arg_
     if (arg_count != 1) runtime_error("remove expects 1 arg");
     const char *p = expect_path(&args[0]);
     int rc = unlink(p);
-    return make_bool(rc == 0);
+    return fs_bool(rc == 0);
 }
 
 static RuntimeValue n_mkdir(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
@@ -133,7 +133,7 @@ static RuntimeValue n_mkdir(MKSContext *ctx, const RuntimeValue *args, int arg_c
     }
     int rc = mkdir(p, mode);
     if (rc != 0 && errno != EEXIST) runtime_error("mkdir failed (%s)", strerror(errno));
-    return make_bool(rc == 0 || errno == EEXIST);
+    return fs_bool(rc == 0 || errno == EEXIST);
 }
 
 static RuntimeValue n_stat(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
@@ -151,8 +151,8 @@ static RuntimeValue n_stat(MKSContext *ctx, const RuntimeValue *args, int arg_co
         env_set_fast(obj_env, "mode", get_hash("mode"), make_int((int64_t)st.st_mode));
         env_set_fast(obj_env, "mtime", get_hash("mtime"), make_int((int64_t)st.st_mtime));
         env_set_fast(obj_env, "atime", get_hash("atime"), make_int((int64_t)st.st_atime));
-        env_set_fast(obj_env, "is_dir", get_hash("is_dir"), make_bool(S_ISDIR(st.st_mode)));
-        env_set_fast(obj_env, "is_file", get_hash("is_file"), make_bool(S_ISREG(st.st_mode)));
+        env_set_fast(obj_env, "is_dir", get_hash("is_dir"), fs_bool(S_ISDIR(st.st_mode)));
+        env_set_fast(obj_env, "is_file", get_hash("is_file"), fs_bool(S_ISREG(st.st_mode)));
     }
     gc_pop_env();
     return obj;
@@ -179,7 +179,7 @@ static RuntimeValue n_rename(MKSContext *ctx, const RuntimeValue *args, int arg_
     if (arg_count != 2) runtime_error("rename expects (old, new)");
     const char *oldp = expect_path(&args[0]);
     const char *newp = expect_path(&args[1]);
-    return make_bool(rename(oldp, newp) == 0);
+    return fs_bool(rename(oldp, newp) == 0);
 }
 
 static void bind(RuntimeValue exports, const char *name, NativeFn fn) {

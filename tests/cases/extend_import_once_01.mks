@@ -1,0 +1,6 @@
+using "../fixtures/extend_once/array_tools.mks" as tools;
+using "../fixtures/extend_once/array_tools.mks" as tools;
+
+Writeln([].first_or(9));
+Writeln([5].first_or(9));
+Writeln(tools.VERSION);

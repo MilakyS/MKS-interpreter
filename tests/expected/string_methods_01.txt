@@ -1,0 +1,6 @@
+bb
+xx
+alongc
+abc
+a b
+a|b|c

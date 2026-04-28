@@ -1,0 +1,9 @@
+using std.io as io;
+
+io.fputs(io.stdout, "hello", 42);
+io.puts(io.stdout, " ok");
+io.puts(io.stderr, "err", true);
+io.fflush(io.stdout);
+io.fflush(io.stderr);
+Writeln(io.read_word());
+Writeln(io.fgets());

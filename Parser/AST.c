@@ -71,6 +71,16 @@ ASTNode *create_ast_string(char *val, int line) {
     return node;
 }
 
+ASTNode *create_ast_null(int line) {
+    return create_ast(AST_NULL, line);
+}
+
+ASTNode *create_ast_bool(bool value, int line) {
+    ASTNode *node = create_ast(AST_BOOL, line);
+    node->data.bool_value = value;
+    return node;
+}
+
 ASTNode *create_ast_array(ASTNode **elements, int count, int line) {
     ASTNode *node = create_ast(AST_ARRAY, line);
     node->data.array.items = elements;
@@ -293,6 +303,21 @@ ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, AS
     return node;
 }
 
+ASTNode *create_ast_switch(ASTNode *value,
+                           ASTNode **case_values,
+                           ASTNode **case_bodies,
+                           int case_count,
+                           ASTNode *default_body,
+                           int line) {
+    ASTNode *node = create_ast(AST_SWITCH, line);
+    node->data.switch_stmt.value = value;
+    node->data.switch_stmt.case_values = case_values;
+    node->data.switch_stmt.case_bodies = case_bodies;
+    node->data.switch_stmt.case_count = case_count;
+    node->data.switch_stmt.default_body = default_body;
+    return node;
+}
+
 ASTNode *create_ast_output(ASTNode **args, int count, bool is_newline, int line) {
     ASTNode *node = create_ast(AST_OUTPUT, line);
     node->data.output.args = args;
@@ -348,6 +373,10 @@ void delete_ast_node(ASTNode *node) {
 
         case AST_STRING:
             free(node->data.string_value);
+            break;
+
+        case AST_NULL:
+        case AST_BOOL:
             break;
 
         case AST_OUTPUT:
@@ -495,6 +524,23 @@ void delete_ast_node(ASTNode *node) {
             free(node->data.repeat_stmt.iter_name);
             delete_ast_node(node->data.repeat_stmt.count_expr);
             delete_ast_node(node->data.repeat_stmt.body);
+            break;
+
+        case AST_SWITCH:
+            delete_ast_node(node->data.switch_stmt.value);
+            if (node->data.switch_stmt.case_values != NULL) {
+                for (int i = 0; i < node->data.switch_stmt.case_count; i++) {
+                    delete_ast_node(node->data.switch_stmt.case_values[i]);
+                }
+                free(node->data.switch_stmt.case_values);
+            }
+            if (node->data.switch_stmt.case_bodies != NULL) {
+                for (int i = 0; i < node->data.switch_stmt.case_count; i++) {
+                    delete_ast_node(node->data.switch_stmt.case_bodies[i]);
+                }
+                free(node->data.switch_stmt.case_bodies);
+            }
+            delete_ast_node(node->data.switch_stmt.default_body);
             break;
 
         case AST_INDEX_ASSIGN:

@@ -490,6 +490,12 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
         case AST_STRING:
             return make_string(node->data.string_value);
 
+        case AST_NULL:
+            return make_null();
+
+        case AST_BOOL:
+            return make_bool(node->data.bool_value);
+
         case AST_IDENTIFIER:
             return eval_identifier_cached(node, env);
 
@@ -502,9 +508,8 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
             for (int i = 0; i < count; i++) {
                 RuntimeValue elem = unwrap_return(eval(node->data.array.items[i], env));
                 arr_val.data.managed_array->elements[i] = elem;
+                arr_val.data.managed_array->count = i + 1;
             }
-
-            arr_val.data.managed_array->count = count;
 
             gc_pop_root();
             return arr_val;
@@ -660,6 +665,9 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
 
         case AST_REPEAT:
             return eval_repeat(node, env);
+
+        case AST_SWITCH:
+            return eval_switch(node, env);
 
         case AST_EXPORT:
             return eval_export(node, env);

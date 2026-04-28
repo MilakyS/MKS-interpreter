@@ -20,30 +20,30 @@ export fnc reverse(arr) ->
     <-
     return out;
 <-
-export fnc map(arr, fnc) ->
+export fnc map(arr, cb) ->
     var out =: [];
     var i =: 0;
     while (i < arr.len()) ->
-        out.inject(fnc(arr[i]));
+        out.inject(cb(arr[i]));
         i =: i + 1;
     <-
     return out;
 <-
-export fnc filter(arr, fnc) ->
+export fnc filter(arr, cb) ->
     var out =: [];
     var i =: 0;
     while (i < arr.len()) ->
-        var keep =: fnc(arr[i]);
+        var keep =: cb(arr[i]);
         if (keep ?= 0) -> i =: i + 1; <-
         out.inject(arr[i]);
         i =: i + 1;
     <-
     return out;
 <-
-export fnc reduce(arr, fnc, acc) ->
+export fnc reduce(arr, cb, acc) ->
     var i =: 0;
     while (i < arr.len()) ->
-        acc =: fnc(acc, arr[i]);
+        acc =: cb(acc, arr[i]);
         i =: i + 1;
     <-
     return acc;

@@ -1,0 +1,7 @@
+var s =: "aaaa";
+Writeln(s.replace("aa", "b"));
+Writeln("abcabc".replace("abc", "x"));
+Writeln("abc".replace("b", "long"));
+Writeln("abc".replace("z", "x"));
+Writeln(" a b ".trim());
+Writeln("a,b,c".split(",").join("|"));

@@ -1,57 +1,97 @@
 #include "math.h"
-#include "../Runtime/module.h"
-#include "../Runtime/errors.h"
-#include "../Runtime/context.h"
-#include "../Utils/hash.h"
-#include <math.h>
-#include <stdbool.h>
 
-static RuntimeValue n_math1(double (*fn)(double), const RuntimeValue *args, int arg_count, const char *name) {
-    if (arg_count != 1) runtime_error("%s expects 1 arg", name);
+#include "../Runtime/context.h"
+#include "../Runtime/errors.h"
+#include "../Runtime/module.h"
+
+#include <math.h>
+
+typedef double (*MathUnaryFn)(double);
+typedef double (*MathBinaryFn)(double, double);
+
+typedef struct MathBinding {
+    const char *name;
+    NativeFn fn;
+} MathBinding;
+
+static void expect_argc(const char *name, int got, int want) {
+    if (got != want) {
+        runtime_error("math.%s expects %d argument%s, got %d",
+                      name,
+                      want,
+                      want == 1 ? "" : "s",
+                      got);
+    }
+}
+
+static RuntimeValue call_unary(const char *name,
+                               MathUnaryFn fn,
+                               const RuntimeValue *args,
+                               int arg_count) {
+    expect_argc(name, arg_count, 1);
     return make_float(fn(runtime_value_as_double(args[0])));
 }
 
-static RuntimeValue n_math2(double (*fn)(double, double), const RuntimeValue *args, int arg_count, const char *name) {
-    if (arg_count != 2) runtime_error("%s expects 2 args", name);
-    return make_float(fn(runtime_value_as_double(args[0]), runtime_value_as_double(args[1])));
+static RuntimeValue call_binary(const char *name,
+                                MathBinaryFn fn,
+                                const RuntimeValue *args,
+                                int arg_count) {
+    expect_argc(name, arg_count, 2);
+    return make_float(fn(runtime_value_as_double(args[0]),
+                         runtime_value_as_double(args[1])));
 }
 
-static RuntimeValue n_sqrt(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(sqrt, args, arg_count, "sqrt"); }
-static RuntimeValue n_sin (MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(sin,  args, arg_count, "sin"); }
-static RuntimeValue n_cos (MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(cos,  args, arg_count, "cos"); }
-static RuntimeValue n_tan (MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(tan,  args, arg_count, "tan"); }
-static RuntimeValue n_asin(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(asin, args, arg_count, "asin"); }
-static RuntimeValue n_acos(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(acos, args, arg_count, "acos"); }
-static RuntimeValue n_atan(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(atan, args, arg_count, "atan"); }
-static RuntimeValue n_atan2(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math2(atan2, args, arg_count, "atan2"); }
-static RuntimeValue n_floor(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(floor, args, arg_count, "floor"); }
-static RuntimeValue n_ceil (MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(ceil,  args, arg_count, "ceil"); }
+#define MATH_UNARY(NAME, C_FN)                                                \
+    static RuntimeValue n_##NAME(MKSContext *ctx,                             \
+                                 const RuntimeValue *args,                    \
+                                 int arg_count) {                             \
+        (void)ctx;                                                            \
+        return call_unary(#NAME, C_FN, args, arg_count);                      \
+    }
+
+#define MATH_BINARY(NAME, C_FN)                                               \
+    static RuntimeValue n_##NAME(MKSContext *ctx,                             \
+                                 const RuntimeValue *args,                    \
+                                 int arg_count) {                             \
+        (void)ctx;                                                            \
+        return call_binary(#NAME, C_FN, args, arg_count);                     \
+    }
+
+MATH_UNARY(sqrt, sqrt)
+MATH_UNARY(sin, sin)
+MATH_UNARY(cos, cos)
+MATH_UNARY(tan, tan)
+MATH_UNARY(asin, asin)
+MATH_UNARY(acos, acos)
+MATH_UNARY(atan, atan)
+MATH_UNARY(floor, floor)
+MATH_UNARY(ceil, ceil)
+MATH_UNARY(log, log)
+MATH_UNARY(log10, log10)
+MATH_UNARY(exp, exp)
+MATH_UNARY(trunc, trunc)
+
+MATH_BINARY(pow, pow)
+MATH_BINARY(atan2, atan2)
+MATH_BINARY(hypot, hypot)
+MATH_BINARY(fmod, fmod)
+
 static RuntimeValue n_round(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    if (arg_count != 1) runtime_error("round expects 1 arg");
+    expect_argc("round", arg_count, 1);
     return make_int(llround(runtime_value_as_double(args[0])));
-}
-
-static RuntimeValue n_log(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(log, args, arg_count, "log"); }
-static RuntimeValue n_log10(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(log10, args, arg_count, "log10"); }
-static RuntimeValue n_exp(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math1(exp, args, arg_count, "exp"); }
-static RuntimeValue n_hypot(MKSContext *ctx, const RuntimeValue *args, int arg_count) { (void)ctx; return n_math2(hypot, args, arg_count, "hypot"); }
-
-static RuntimeValue n_pow(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
-    (void)ctx;
-    if (arg_count != 2) runtime_error("pow expects 2 args");
-    return make_float(pow(runtime_value_as_double(args[0]), runtime_value_as_double(args[1])));
 }
 
 static RuntimeValue n_abs(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    if (arg_count != 1) runtime_error("abs expects 1 arg");
+    expect_argc("abs", arg_count, 1);
     return make_number_from_double(fabs(runtime_value_as_double(args[0])));
 }
 
 static RuntimeValue n_min(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    if (arg_count != 2) runtime_error("min expects 2 args");
+    expect_argc("min", arg_count, 2);
+
     double a = runtime_value_as_double(args[0]);
     double b = runtime_value_as_double(args[1]);
     return make_number_from_double(a < b ? a : b);
@@ -59,7 +99,8 @@ static RuntimeValue n_min(MKSContext *ctx, const RuntimeValue *args, int arg_cou
 
 static RuntimeValue n_max(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    if (arg_count != 2) runtime_error("max expects 2 args");
+    expect_argc("max", arg_count, 2);
+
     double a = runtime_value_as_double(args[0]);
     double b = runtime_value_as_double(args[1]);
     return make_number_from_double(a > b ? a : b);
@@ -67,88 +108,136 @@ static RuntimeValue n_max(MKSContext *ctx, const RuntimeValue *args, int arg_cou
 
 static RuntimeValue n_square(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    if (arg_count != 1) runtime_error("square expects 1 arg");
+    expect_argc("square", arg_count, 1);
+
     double a = runtime_value_as_double(args[0]);
     return make_number_from_double(a * a);
 }
 
 static RuntimeValue n_clamp(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    if (arg_count != 3) runtime_error("clamp expects (x, lo, hi)");
+    expect_argc("clamp", arg_count, 3);
+
     double x = runtime_value_as_double(args[0]);
     double lo = runtime_value_as_double(args[1]);
     double hi = runtime_value_as_double(args[2]);
-    if (lo > hi) runtime_error("clamp: lo > hi");
-    if (x < lo) x = lo;
-    if (x > hi) x = hi;
+
+    if (lo > hi) {
+        runtime_error("math.clamp expects low <= high");
+    }
+
+    if (x < lo) {
+        x = lo;
+    }
+    if (x > hi) {
+        x = hi;
+    }
+
     return make_number_from_double(x);
 }
 
 static RuntimeValue n_deg2rad(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    if (arg_count != 1) runtime_error("deg2rad expects 1 arg");
+    expect_argc("deg2rad", arg_count, 1);
     return make_float(runtime_value_as_double(args[0]) * (MKS_PI / 180.0));
 }
 
 static RuntimeValue n_rad2deg(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    if (arg_count != 1) runtime_error("rad2deg expects 1 arg");
+    expect_argc("rad2deg", arg_count, 1);
     return make_float(runtime_value_as_double(args[0]) * (180.0 / MKS_PI));
+}
+
+static RuntimeValue n_isnan(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
+    expect_argc("isnan", arg_count, 1);
+    return make_bool(isnan(runtime_value_as_double(args[0])));
+}
+
+static RuntimeValue n_isinf(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
+    (void)ctx;
+    expect_argc("isinf", arg_count, 1);
+    return make_bool(isinf(runtime_value_as_double(args[0])));
+}
+
+static RuntimeValue math_const(const char *name, double value, int arg_count) {
+    expect_argc(name, arg_count, 0);
+    return make_float(value);
 }
 
 static RuntimeValue n_const_pi(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    (void)args; (void)arg_count;
-    return make_float(MKS_PI);
+    (void)args;
+    return math_const("pi", MKS_PI, arg_count);
 }
 
 static RuntimeValue n_const_tau(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    (void)args; (void)arg_count;
-    return make_float(MKS_TAU);
+    (void)args;
+    return math_const("tau", MKS_TAU, arg_count);
 }
 
 static RuntimeValue n_const_e(MKSContext *ctx, const RuntimeValue *args, int arg_count) {
     (void)ctx;
-    (void)args; (void)arg_count;
-    return make_float(MKS_E);
+    (void)args;
+    return math_const("e", MKS_E, arg_count);
 }
 
-static void bind(RuntimeValue exports, const char *name, NativeFn fn) {
-    RuntimeValue v;
-    v.type = VAL_NATIVE_FUNC;
-    v.original_type = VAL_NATIVE_FUNC;
-    v.data.native.fn = fn;
-    v.data.native.ctx = NULL;
-    env_set_fast(exports.data.obj_env, name, get_hash(name), v);
+static void bind_many(RuntimeValue exports, const MathBinding *bindings) {
+    for (const MathBinding *binding = bindings; binding->name != NULL; binding++) {
+        module_bind_native(exports, binding->name, binding->fn);
+    }
 }
 
 void std_init_math(RuntimeValue exports, Environment *module_env) {
     (void)module_env;
-    bind(exports, "sqrt", n_sqrt);
-    bind(exports, "pow", n_pow);
-    bind(exports, "sin", n_sin);
-    bind(exports, "cos", n_cos);
-    bind(exports, "tan", n_tan);
-    bind(exports, "asin", n_asin);
-    bind(exports, "acos", n_acos);
-    bind(exports, "atan", n_atan);
-    bind(exports, "atan2", n_atan2);
-    bind(exports, "floor", n_floor);
-    bind(exports, "ceil", n_ceil);
-    bind(exports, "round", n_round);
-    bind(exports, "abs", n_abs);
-    bind(exports, "min", n_min);
-    bind(exports, "max", n_max);
-    bind(exports, "square", n_square);
-    bind(exports, "clamp", n_clamp);
-    bind(exports, "log", n_log);
-    bind(exports, "log10", n_log10);
-    bind(exports, "exp", n_exp);
-    bind(exports, "hypot", n_hypot);
-    bind(exports, "deg2rad", n_deg2rad);
-    bind(exports, "rad2deg", n_rad2deg);
-    bind(exports, "pi", n_const_pi);
-    bind(exports, "tau", n_const_tau);
-    bind(exports, "e", n_const_e);
+
+    static const MathBinding bindings[] = {
+        { "sqrt", n_sqrt },
+        { "pow", n_pow },
+        { "sin", n_sin },
+        { "cos", n_cos },
+        { "tan", n_tan },
+        { "asin", n_asin },
+        { "acos", n_acos },
+        { "atan", n_atan },
+        { "atan2", n_atan2 },
+        { "floor", n_floor },
+        { "ceil", n_ceil },
+        { "round", n_round },
+        { "trunc", n_trunc },
+        { "abs", n_abs },
+        { "min", n_min },
+        { "max", n_max },
+        { "square", n_square },
+        { "clamp", n_clamp },
+        { "log", n_log },
+        { "log10", n_log10 },
+        { "exp", n_exp },
+        { "hypot", n_hypot },
+        { "fmod", n_fmod },
+        { "deg2rad", n_deg2rad },
+        { "rad2deg", n_rad2deg },
+        { "isnan", n_isnan },
+        { "isinf", n_isinf },
+        { "pi", n_const_pi },
+        { "tau", n_const_tau },
+        { "e", n_const_e },
+
+        /* Convenience aliases; existing names above remain canonical. */
+        { "sqr", n_square },
+        { "ln", n_log },
+        { "mod", n_fmod },
+        { "rad", n_deg2rad },
+        { "deg", n_rad2deg },
+        { "fabs", n_abs },
+        { "fmin", n_min },
+        { "fmax", n_max },
+        { "PI", n_const_pi },
+        { "TAU", n_const_tau },
+        { "E", n_const_e },
+        { NULL, NULL }
+    };
+
+    bind_many(exports, bindings);
 }

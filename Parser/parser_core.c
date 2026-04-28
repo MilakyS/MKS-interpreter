@@ -107,6 +107,12 @@ static const char *token_type_name(enum TokenType type) {
         case TOKEN_KW_CONTINUE: return "continue";
         case TOKEN_KW_REPEAT: return "repeat";
         case TOKEN_KW_IN: return "in";
+        case TOKEN_KW_NULL: return "null";
+        case TOKEN_KW_TRUE: return "true";
+        case TOKEN_KW_FALSE: return "false";
+        case TOKEN_KW_SWITCH: return "switch";
+        case TOKEN_KW_CASE: return "case";
+        case TOKEN_KW_DEFAULT: return "default";
     }
     return "unknown token";
 }

@@ -1,0 +1,8 @@
+using std.path as path;
+
+Writeln(path.join("a", "b", "c.txt"));
+Writeln(path.base("dir/sub/file.txt"));
+Writeln(path.dir("dir/sub/file.txt"));
+Writeln(path.ext("dir/sub/file.txt"));
+Writeln(path.name("dir/sub/file.txt"));
+Writeln(path.norm("dir//sub\\\\file.txt"));

@@ -1,0 +1,3 @@
+export fnc item() ->
+    return "script-sub";
+<-

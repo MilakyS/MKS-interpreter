@@ -18,6 +18,7 @@
 #include "errors.h"
 #include "functions.h"
 #include "module.h"
+#include "operators.h"
 #include "profiler.h"
 
 typedef struct {
@@ -34,6 +35,7 @@ static const char *value_type_name(RuntimeValue value) {
     switch (value.type) {
         case VAL_INT:
         case VAL_FLOAT: return "number";
+        case VAL_BOOL: return "bool";
         case VAL_STRING: return "string";
         case VAL_ARRAY: return "array";
         case VAL_POINTER: return "pointer";
@@ -102,6 +104,10 @@ static void append_value_string(StringBuffer *sb, RuntimeValue value) {
             sb_append(sb, num_buf);
             break;
 
+        case VAL_BOOL:
+            sb_append(sb, value.data.bool_value ? "true" : "false");
+            break;
+
         case VAL_STRING:
             if (value.data.managed_string != NULL &&
                 value.data.managed_string->data != NULL) {
@@ -168,12 +174,16 @@ static RuntimeValue native_Int(MKSContext *ctx, const RuntimeValue *args, const 
         return value;
     }
 
+    if (value.type == VAL_BOOL) {
+        return make_int(value.data.bool_value ? 1 : 0);
+    }
+
     if (value.type == VAL_NULL) {
         return make_int(0);
     }
 
     if (value.type != VAL_STRING) {
-        runtime_error("Int cannot convert %s; expected number, string, or null",
+        runtime_error("Int cannot convert %s; expected number, bool, string, or null",
                       value_type_name(value));
     }
 
@@ -199,16 +209,23 @@ static RuntimeValue native_Int(MKSContext *ctx, const RuntimeValue *args, const 
     return make_number_from_double(parsed);
 }
 
-static RuntimeValue native_Read(MKSContext *ctx, const RuntimeValue *args, const int arg_count) {
-    (void)ctx;
-    if (arg_count > 0 && args[0].type == VAL_STRING) {
-        if (args[0].data.managed_string != NULL &&
-            args[0].data.managed_string->data != NULL) {
-            fputs(args[0].data.managed_string->data, stdout);
-        }
-        fflush(stdout);
+static void input_write_prompt(const RuntimeValue *args, const int arg_count, const char *fn_name) {
+    if (arg_count == 0) {
+        return;
     }
 
+    if (args[0].type != VAL_STRING) {
+        runtime_error("%s expects a string prompt", fn_name);
+    }
+
+    if (args[0].data.managed_string != NULL &&
+        args[0].data.managed_string->data != NULL) {
+        fputs(args[0].data.managed_string->data, stdout);
+    }
+    fflush(stdout);
+}
+
+static RuntimeValue read_input_line(void) {
     char buffer[8192];
     buffer[0] = '\0';
 
@@ -222,15 +239,53 @@ static RuntimeValue native_Read(MKSContext *ctx, const RuntimeValue *args, const
         len--;
     }
 
-    if (arg_count > 0 &&
-        runtime_value_is_number(args[0]) &&
-        runtime_value_as_double(args[0]) == 0) {
-        char word[256] = {0};
-        sscanf(buffer, "%255s", word);
-        return make_string(word);
+    return make_string(buffer);
+}
+
+static RuntimeValue native_ReadLine(MKSContext *ctx, const RuntimeValue *args, const int arg_count) {
+    (void)ctx;
+
+    if (arg_count > 1) {
+        runtime_error("ReadLine expects at most 1 argument");
     }
 
-    return make_string(buffer);
+    input_write_prompt(args, arg_count, "ReadLine");
+    return read_input_line();
+}
+
+static RuntimeValue native_ReadWord(MKSContext *ctx, const RuntimeValue *args, const int arg_count) {
+    (void)ctx;
+
+    if (arg_count > 1) {
+        runtime_error("ReadWord expects at most 1 argument");
+    }
+
+    input_write_prompt(args, arg_count, "ReadWord");
+    RuntimeValue line = read_input_line();
+    if (line.type != VAL_STRING ||
+        line.data.managed_string == NULL ||
+        line.data.managed_string->data == NULL) {
+        return make_string("");
+    }
+
+    char word[256] = {0};
+    sscanf(line.data.managed_string->data, "%255s", word);
+    return make_string(word);
+}
+
+static RuntimeValue native_Read(MKSContext *ctx, const RuntimeValue *args, const int arg_count) {
+    (void)ctx;
+
+    if (arg_count > 1) {
+        runtime_error("Read expects at most 1 argument");
+    }
+
+    if (arg_count == 1 && args[0].type != VAL_STRING) {
+        runtime_error("Read now matches ReadLine([prompt]); use ReadWord([prompt]) for word input");
+    }
+
+    input_write_prompt(args, arg_count, "Read");
+    return read_input_line();
 }
 
 static RuntimeValue native_Expect(MKSContext *ctx, const RuntimeValue *args, const int arg_count) {
@@ -239,11 +294,11 @@ static RuntimeValue native_Expect(MKSContext *ctx, const RuntimeValue *args, con
         runtime_error("Expect needs at least 1 argument");
     }
     RuntimeValue c = args[0];
-    int truthy = runtime_value_is_number(c) ? (runtime_value_as_double(c) != 0) : 0;
+    int truthy = runtime_value_is_truthy(c);
     if (!truthy) {
         runtime_error("Expectation failed");
     }
-    return make_int(1);
+    return make_bool(true);
 }
 
 static RuntimeValue native_Object(MKSContext *ctx, const RuntimeValue *args, const int arg_count) {
@@ -263,6 +318,8 @@ void mks_register_builtins(MKSContext *ctx, Environment *env) {
     mks_context_set_current(ctx);
 
     module_bind_native(make_object(env), "Read", native_Read);
+    module_bind_native(make_object(env), "ReadLine", native_ReadLine);
+    module_bind_native(make_object(env), "ReadWord", native_ReadWord);
     module_bind_native(make_object(env), "Object", native_Object);
     module_bind_native(make_object(env), "Int", native_Int);
     module_bind_native(make_object(env), "String", native_String);
@@ -317,11 +374,18 @@ int mks_run_source(MKSContext *ctx, const char *name, const char *source, const 
 
     const int was_active = ctx->error_active;
     if (setjmp(ctx->error_jmp) != 0) {
+        const int aborted = ctx->abort_requested;
+        const int status = ctx->error_status;
+        ctx->abort_requested = 0;
         ctx->error_active = was_active;
         mks_context_set_current(previous);
-        return ctx->error_status != 0 ? ctx->error_status : 1;
+        if (aborted) {
+            return status;
+        }
+        return status != 0 ? status : 1;
     }
     ctx->error_active = 1;
+    ctx->abort_requested = 0;
     ctx->error_status = 0;
 
     runtime_set_file(name);

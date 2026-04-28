@@ -24,6 +24,8 @@ typedef struct GCObject {
 
 #define MAX_ROOTS 1024
 #define MAX_ENV_ROOTS 4096
+#define MAX_PINNED_ROOTS 2048
+#define MAX_PINNED_ENV_ROOTS 4096
 
 typedef struct {
     GCObject *head;
@@ -38,8 +40,12 @@ typedef struct {
 
     struct RuntimeValue *roots[MAX_ROOTS];
     struct Environment *env_roots[MAX_ENV_ROOTS];
+    struct RuntimeValue *pinned_roots[MAX_PINNED_ROOTS];
+    struct Environment *pinned_env_roots[MAX_PINNED_ENV_ROOTS];
     int roots_count;
     int env_roots_count;
+    int pinned_roots_count;
+    int pinned_env_roots_count;
 
     int debug_enabled;
 } GarbageCollector;
@@ -61,8 +67,14 @@ void gc_resume(void);
 
 void gc_push_root(struct RuntimeValue *val);
 void gc_pop_root(void);
+void gc_pin_root(struct RuntimeValue *val);
+void gc_unpin_root(struct RuntimeValue *val);
 int gc_value_needs_root(const struct RuntimeValue *val);
 int gc_push_root_if_needed(struct RuntimeValue *val);
+int gc_pin_root_if_needed(struct RuntimeValue *val);
+void gc_unpin_root_if_needed(struct RuntimeValue *val);
+void gc_pin_env(struct Environment *env);
+void gc_unpin_env(struct Environment *env);
 
 int gc_save_stack(void);
 void gc_restore_stack(int top);

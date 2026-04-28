@@ -210,6 +210,24 @@ static ASTNode* parser_parse_primary(Parser *parser) {
         return parser_parse_postfix(parser, node);
     }
 
+    if (parser->current_token.type == TOKEN_KW_NULL) {
+        parser_eat(parser, TOKEN_KW_NULL);
+        node = create_ast_null(line);
+        return parser_parse_postfix(parser, node);
+    }
+
+    if (parser->current_token.type == TOKEN_KW_TRUE) {
+        parser_eat(parser, TOKEN_KW_TRUE);
+        node = create_ast_bool(true, line);
+        return parser_parse_postfix(parser, node);
+    }
+
+    if (parser->current_token.type == TOKEN_KW_FALSE) {
+        parser_eat(parser, TOKEN_KW_FALSE);
+        node = create_ast_bool(false, line);
+        return parser_parse_postfix(parser, node);
+    }
+
     if (parser->current_token.type == TOKEN_IDENTIFIER) {
         unsigned int name_hash = 0;
         char *name = parser_take_identifier(parser, &name_hash);

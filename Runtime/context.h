@@ -41,8 +41,12 @@ typedef struct MKSContext {
 
     uint64_t random_state;
 
+    int cli_argc;
+    char **cli_argv;
+
     jmp_buf error_jmp;
     int error_active;
+    int abort_requested;
     int error_status;
 } MKSContext;
 
@@ -51,6 +55,7 @@ void mks_context_set_current(MKSContext *ctx);
 void mks_context_init(MKSContext *ctx, size_t initial_gc_threshold);
 void mks_context_dispose(MKSContext *ctx);
 void mks_context_abort(int status);
+void mks_context_set_cli_args(MKSContext *ctx, int argc, char **argv);
 MKSContext *mks_context_default(void);
 
 #endif

@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <ctype.h>
+#include <stdint.h>
 
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
@@ -75,8 +75,7 @@ static RuntimeValue m_array_inject(RuntimeValue target, RuntimeValue *args, int 
         );
 
         if (new_elements == NULL) {
-            fprintf(stderr, "[MKS Runtime Error] Out of memory in array.inject()\n");
-            exit(1);
+            runtime_error("[MKS Runtime Error] Out of memory in array.inject()\n");
         }
 
         arr->elements = new_elements;
@@ -95,8 +94,7 @@ static void arr_push(ManagedArray *arr, RuntimeValue v) {
             (size_t)new_capacity * sizeof(RuntimeValue)
         );
         if (new_elements == NULL) {
-            fprintf(stderr, "[MKS Runtime Error] Out of memory in array push\n");
-            exit(1);
+            runtime_error("Out of memory in array push");
         }
         arr->elements = new_elements;
         arr->capacity = new_capacity;
@@ -237,8 +235,7 @@ static RuntimeValue m_string_upper(RuntimeValue target, RuntimeValue *args, int 
 
     char *res_str = (char *)malloc(len + 1);
     if (res_str == NULL) {
-        fprintf(stderr, "[MKS Runtime Error] Out of memory in string.upper()\n");
-        exit(1);
+        runtime_error("Out of memory in string.upper()");
     }
 
     for (size_t i = 0; i < len; i++) {
@@ -259,8 +256,7 @@ static RuntimeValue m_string_lower(RuntimeValue target, RuntimeValue *args, int 
 
     char *res_str = (char *)malloc(len + 1);
     if (res_str == NULL) {
-        fprintf(stderr, "[MKS Runtime Error] Out of memory in string.lower()\n");
-        exit(1);
+        runtime_error("Out of memory in string.lower()");
     }
 
     for (size_t i = 0; i < len; i++) {
@@ -284,10 +280,8 @@ static RuntimeValue m_string_contains(RuntimeValue target, RuntimeValue *args, i
     if (arg_count != 1 || args[0].type != VAL_STRING) {
         runtime_error("contains expects 1 string argument");
     }
-    if (strstr(target.data.managed_string->data, args[0].data.managed_string->data) != NULL) {
-        return make_int(1);
-    }
-    return make_int(0);
+    return make_bool(strstr(target.data.managed_string->data,
+                            args[0].data.managed_string->data) != NULL);
 }
 
 static RuntimeValue m_string_starts(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
@@ -296,8 +290,8 @@ static RuntimeValue m_string_starts(RuntimeValue target, RuntimeValue *args, int
     const char *s = target.data.managed_string->data;
     const char *p = args[0].data.managed_string->data;
     size_t lp = args[0].data.managed_string->len;
-    if (target.data.managed_string->len < lp) return make_int(0);
-    return make_int(strncmp(s, p, lp) == 0 ? 1 : 0);
+    if (target.data.managed_string->len < lp) return make_bool(false);
+    return make_bool(strncmp(s, p, lp) == 0);
 }
 
 static RuntimeValue m_string_ends(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
@@ -307,8 +301,8 @@ static RuntimeValue m_string_ends(RuntimeValue target, RuntimeValue *args, int a
     const char *p = args[0].data.managed_string->data;
     size_t ls = target.data.managed_string->len;
     size_t lp = args[0].data.managed_string->len;
-    if (ls < lp) return make_int(0);
-    return make_int(strncmp(s + ls - lp, p, lp) == 0 ? 1 : 0);
+    if (ls < lp) return make_bool(false);
+    return make_bool(strncmp(s + ls - lp, p, lp) == 0);
 }
 
 static RuntimeValue m_string_trim(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
@@ -345,7 +339,16 @@ static RuntimeValue m_string_replace(RuntimeValue target, RuntimeValue *args, in
     if (count == 0) return target;
 
     size_t src_len = target.data.managed_string->len;
-    size_t out_len = src_len + count * (len_new - len_old);
+    size_t out_len = src_len;
+    if (len_new >= len_old) {
+        size_t delta = len_new - len_old;
+        if (count != 0 && delta > (SIZE_MAX - out_len) / count) {
+            runtime_error("replace result is too large");
+        }
+        out_len += count * delta;
+    } else {
+        out_len -= count * (len_old - len_new);
+    }
     char *buf = malloc(out_len + 1);
     if (!buf) runtime_error("Out of memory in replace");
 
@@ -371,7 +374,9 @@ static RuntimeValue m_string_split(RuntimeValue target, RuntimeValue *args, int 
     size_t len_delim = args[0].data.managed_string->len;
     if (len_delim == 0) runtime_error("split delimiter cannot be empty");
 
-    ManagedArray *arr = make_array(4).data.managed_array;
+    RuntimeValue out = make_array(4);
+    gc_push_root(&out);
+    ManagedArray *arr = out.data.managed_array;
 
     const char *start = src;
     const char *pos;
@@ -391,10 +396,7 @@ static RuntimeValue m_string_split(RuntimeValue target, RuntimeValue *args, int 
     RuntimeValue s = make_string_owned(buf, len);
     arr_push(arr, s);
 
-    RuntimeValue out;
-    out.type = VAL_ARRAY;
-    out.original_type = VAL_ARRAY;
-    out.data.managed_array = arr;
+    gc_pop_root();
     return out;
 }
 
@@ -403,7 +405,7 @@ static RuntimeValue m_string_empty(RuntimeValue target, RuntimeValue *args, int 
     UNUSED(arg_count);
     UNUSED(env);
 
-    return make_int(target.data.managed_string->len == 0);
+    return make_bool(target.data.managed_string->len == 0);
 }
 
 static MethodEntry string_methods[] = {
@@ -516,12 +518,10 @@ static RuntimeValue handle_object_method(
         const int param_count = decl->data.func_decl.param_count;
         if (arg_count != param_count) {
             gc_pop_env();
-            fprintf(stderr,
-                    "[MKS Runtime Error] Method '%s' expects %d arguments, got %d\n",
-                    node->data.method_call.method_name,
-                    param_count,
-                    arg_count);
-            exit(1);
+            runtime_error("Method '%s' expects %d arguments, got %d",
+                          node->data.method_call.method_name,
+                          param_count,
+                          arg_count);
         }
 
         for (int i = 0; i < param_count; i++) {

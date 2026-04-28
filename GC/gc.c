@@ -156,9 +156,19 @@ static void gc_mark_all_iterative(Environment *global_env, Environment *current_
         gc_mark_value_push(&stack, mks_gc.roots[i]);
     }
 
+    for (int i = 0; i < mks_gc.pinned_roots_count; i++) {
+        GC_LOG("[GC] root pinned[%d]=%p\n", i, (void *)mks_gc.pinned_roots[i]);
+        gc_mark_value_push(&stack, mks_gc.pinned_roots[i]);
+    }
+
     for (int i = 0; i < mks_gc.env_roots_count; i++) {
         GC_LOG("[GC] root env_stack[%d]=%p\n", i, (void *)mks_gc.env_roots[i]);
         gc_mark_object_push(&stack, (GCObject *)mks_gc.env_roots[i]);
+    }
+
+    for (int i = 0; i < mks_gc.pinned_env_roots_count; i++) {
+        GC_LOG("[GC] root env_pinned[%d]=%p\n", i, (void *)mks_gc.pinned_env_roots[i]);
+        gc_mark_object_push(&stack, (GCObject *)mks_gc.pinned_env_roots[i]);
     }
 
     while (stack.count > 0) {
@@ -245,6 +255,8 @@ void gc_init(const size_t initial_threshold) {
     mks_gc.pause_count = 0;
     mks_gc.roots_count = 0;
     mks_gc.env_roots_count = 0;
+    mks_gc.pinned_roots_count = 0;
+    mks_gc.pinned_env_roots_count = 0;
     mks_gc.debug_enabled = 0;
 }
 
@@ -301,6 +313,38 @@ void gc_push_root(RuntimeValue *val) {
     GC_LOG("[GC] push root ptr=%p roots_count=%d\n", (void *)val, mks_gc.roots_count);
 }
 
+void gc_pin_root(RuntimeValue *val) {
+    if (val == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < mks_gc.pinned_roots_count; i++) {
+        if (mks_gc.pinned_roots[i] == val) {
+            return;
+        }
+    }
+
+    if (mks_gc.pinned_roots_count >= MAX_PINNED_ROOTS) {
+        runtime_error("GC pinned root stack overflow");
+    }
+
+    mks_gc.pinned_roots[mks_gc.pinned_roots_count++] = val;
+}
+
+void gc_unpin_root(RuntimeValue *val) {
+    if (val == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < mks_gc.pinned_roots_count; i++) {
+        if (mks_gc.pinned_roots[i] == val) {
+            mks_gc.pinned_roots[i] = mks_gc.pinned_roots[mks_gc.pinned_roots_count - 1];
+            mks_gc.pinned_roots_count--;
+            return;
+        }
+    }
+}
+
 int gc_value_needs_root(const RuntimeValue *val) {
     if (val == NULL) {
         return 0;
@@ -334,6 +378,23 @@ int gc_push_root_if_needed(RuntimeValue *val) {
     return 1;
 }
 
+int gc_pin_root_if_needed(RuntimeValue *val) {
+    if (!gc_value_needs_root(val)) {
+        return 0;
+    }
+
+    gc_pin_root(val);
+    return 1;
+}
+
+void gc_unpin_root_if_needed(RuntimeValue *val) {
+    if (!gc_value_needs_root(val)) {
+        return;
+    }
+
+    gc_unpin_root(val);
+}
+
 void gc_pop_root(void) {
     if (mks_gc.roots_count > 0) {
         mks_gc.roots_count--;
@@ -349,6 +410,38 @@ void gc_push_env(Environment *env) {
     mks_gc.env_roots[mks_gc.env_roots_count++] = env;
     GC_LOG("[GC] push env root env=%p env_roots_count=%d\n",
            (void *)env, mks_gc.env_roots_count);
+}
+
+void gc_pin_env(Environment *env) {
+    if (env == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < mks_gc.pinned_env_roots_count; i++) {
+        if (mks_gc.pinned_env_roots[i] == env) {
+            return;
+        }
+    }
+
+    if (mks_gc.pinned_env_roots_count >= MAX_PINNED_ENV_ROOTS) {
+        runtime_error("GC pinned env root stack overflow");
+    }
+
+    mks_gc.pinned_env_roots[mks_gc.pinned_env_roots_count++] = env;
+}
+
+void gc_unpin_env(Environment *env) {
+    if (env == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < mks_gc.pinned_env_roots_count; i++) {
+        if (mks_gc.pinned_env_roots[i] == env) {
+            mks_gc.pinned_env_roots[i] = mks_gc.pinned_env_roots[mks_gc.pinned_env_roots_count - 1];
+            mks_gc.pinned_env_roots_count--;
+            return;
+        }
+    }
 }
 
 void gc_pop_env(void) {
@@ -473,6 +566,8 @@ void gc_free_all(void) {
     mks_gc.allocated_bytes = 0;
     mks_gc.roots_count = 0;
     mks_gc.env_roots_count = 0;
+    mks_gc.pinned_roots_count = 0;
+    mks_gc.pinned_env_roots_count = 0;
 }
 
 void gc_collect(Environment *global_env, Environment *current_env) {

@@ -1,0 +1,6 @@
+using std.process as process;
+
+var args =: process.argv();
+Writeln(args.len() > 0);
+Writeln(args[0].contains("mks"));
+Writeln(process.cwd().len() > 0);

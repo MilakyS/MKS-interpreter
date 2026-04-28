@@ -11,5 +11,7 @@
 #include "../env/env.h"
 
 RuntimeValue eval_binop(const ASTNode *node, Environment *env);
+int runtime_value_is_truthy(RuntimeValue value);
+int runtime_value_equals(RuntimeValue left, RuntimeValue right);
 
 #endif //MONKEYKERNELSYNTAX_OPERATORS_H

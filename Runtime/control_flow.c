@@ -1,6 +1,7 @@
 #include "control_flow.h"
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
+#include "operators.h"
 #include "errors.h"
 #include <stdlib.h>
 #include <string.h>
@@ -60,11 +61,7 @@ RuntimeValue eval_block(const ASTNode *node, Environment *env) {
 RuntimeValue eval_if(const ASTNode *node, Environment *env) {
     RuntimeValue cond = unwrap(eval(node->data.if_block.condition, env));
 
-    if (!runtime_value_is_number(cond)) {
-        runtime_error("Unsupported condition type in if statement");
-    }
-
-    if (runtime_value_as_double(cond) != 0.0) {
+    if (runtime_value_is_truthy(cond)) {
         return eval(node->data.if_block.body, env);
     }
 
@@ -76,7 +73,7 @@ RuntimeValue eval_if(const ASTNode *node, Environment *env) {
 }
 
 RuntimeValue eval_while(const ASTNode *node, Environment *env) {
-    while (runtime_value_as_double(unwrap(eval(node->data.while_block.condition, env))) != 0.0) {
+    while (runtime_value_is_truthy(unwrap(eval(node->data.while_block.condition, env)))) {
         gc_check(env);
 
         RuntimeValue res = eval(node->data.while_block.body, env);
@@ -101,7 +98,7 @@ RuntimeValue eval_for(const ASTNode *node, Environment *env) {
 
         if (node->data.for_block.condition != NULL) {
             RuntimeValue cond = unwrap(eval(node->data.for_block.condition, local));
-            if (runtime_value_as_double(cond) == 0.0) {
+            if (!runtime_value_is_truthy(cond)) {
                 break;
             }
         }
@@ -138,6 +135,31 @@ RuntimeValue eval_repeat(const ASTNode *node, Environment *env) {
         if (res.type == VAL_RETURN) return res;
         if (res.type == VAL_BREAK) return make_int(0);
         if (res.type == VAL_CONTINUE) continue;
+    }
+
+    return make_int(0);
+}
+
+RuntimeValue eval_switch(const ASTNode *node, Environment *env) {
+    RuntimeValue switch_value = unwrap(eval(node->data.switch_stmt.value, env));
+    const int switch_rooted = gc_push_root_if_needed(&switch_value);
+
+    for (int i = 0; i < node->data.switch_stmt.case_count; i++) {
+        RuntimeValue case_value = unwrap(eval(node->data.switch_stmt.case_values[i], env));
+        if (runtime_value_equals(switch_value, case_value)) {
+            if (switch_rooted) {
+                gc_pop_root();
+            }
+            return eval(node->data.switch_stmt.case_bodies[i], env);
+        }
+    }
+
+    if (switch_rooted) {
+        gc_pop_root();
+    }
+
+    if (node->data.switch_stmt.default_body != NULL) {
+        return eval(node->data.switch_stmt.default_body, env);
     }
 
     return make_int(0);

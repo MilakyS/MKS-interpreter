@@ -57,6 +57,7 @@ typedef struct ManagedPointer {
 enum ValueType {
     VAL_INT,
     VAL_FLOAT,
+    VAL_BOOL,
     VAL_STRING,
     VAL_ARRAY,
     VAL_POINTER,
@@ -89,6 +90,7 @@ struct RuntimeValue {
     union {
         int64_t int_value;
         double float_value;
+        bool bool_value;
         ManagedString *managed_string;
         ManagedArray *managed_array;
         ManagedPointer *managed_pointer;
@@ -110,6 +112,7 @@ struct RuntimeValue {
 
 RuntimeValue make_int(int64_t val);
 RuntimeValue make_float(double val);
+RuntimeValue make_bool(bool val);
 int runtime_value_is_number(RuntimeValue val);
 double runtime_value_as_double(RuntimeValue val);
 int64_t runtime_value_as_int(RuntimeValue val);

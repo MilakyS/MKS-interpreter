@@ -35,6 +35,14 @@ void mks_context_init(MKSContext *ctx, const size_t initial_gc_threshold) {
     gc_init(initial_gc_threshold);
 }
 
+void mks_context_set_cli_args(MKSContext *ctx, int argc, char **argv) {
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->cli_argc = argc;
+    ctx->cli_argv = argv;
+}
+
 void mks_context_dispose(MKSContext *ctx) {
     if (ctx == NULL) {
         return;
@@ -56,6 +64,7 @@ void mks_context_dispose(MKSContext *ctx) {
 void mks_context_abort(const int status) {
     MKSContext *ctx = mks_context_current();
     if (ctx->error_active) {
+        ctx->abort_requested = 1;
         ctx->error_status = status;
         longjmp(ctx->error_jmp, 1);
     }

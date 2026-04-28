@@ -1,0 +1,10 @@
+extend array ->
+    method first_or(value) ->
+        if (self.len() ?= 0) ->
+            return value;
+        <-
+        return self[0];
+    <-
+<-
+
+export var VERSION =: "once";

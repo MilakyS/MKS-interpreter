@@ -9,5 +9,6 @@ RuntimeValue eval_if(const ASTNode *node, Environment *env);
 RuntimeValue eval_while(const ASTNode *node, Environment *env);
 RuntimeValue eval_for(const ASTNode *node, Environment *env);
 RuntimeValue eval_repeat(const ASTNode *node, Environment *env);
+RuntimeValue eval_switch(const ASTNode *node, Environment *env);
 
 #endif //MONKEYKERNELSYNTAX_CONTROL_FLOW_H

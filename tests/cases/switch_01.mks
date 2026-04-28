@@ -1,0 +1,21 @@
+var a =: 0;
+switch (2) ->
+    case 1 -> a =: 10; <-
+    case 2 -> a =: 20; <-
+    default -> a =: 30; <-
+<-
+Writeln(a);
+
+var b =: "";
+switch ("beta") ->
+    case "alpha" -> b =: "A"; <-
+    case "beta" -> b =: "B"; <-
+    default -> b =: "D"; <-
+<-
+Writeln(b);
+
+switch (null) ->
+    case 1 -> Writeln("bad"); <-
+    case null -> Writeln("null"); <-
+    default -> Writeln("default"); <-
+<-

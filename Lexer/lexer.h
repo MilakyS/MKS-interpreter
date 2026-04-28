@@ -63,6 +63,12 @@ enum TokenType {
     TOKEN_KW_CONTINUE,
     TOKEN_KW_REPEAT,
     TOKEN_KW_IN,
+    TOKEN_KW_NULL,
+    TOKEN_KW_TRUE,
+    TOKEN_KW_FALSE,
+    TOKEN_KW_SWITCH,
+    TOKEN_KW_CASE,
+    TOKEN_KW_DEFAULT,
 };
 
 struct Lexer {

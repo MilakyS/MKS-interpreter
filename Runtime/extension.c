@@ -52,6 +52,15 @@ static void ext_push(ExtTable *t, ExtMethod m) {
     t->items[t->count++] = m;
 }
 
+static int ext_find_conflict(const ExtTable *t, unsigned int hash, const char *name) {
+    for (int i = 0; i < t->count; i++) {
+        if (t->items[i].hash == hash && strcmp(t->items[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void extension_free_all(void) {
     ExtTable *ext_tables = (ExtTable *)mks_context_current()->extension_tables;
     if (ext_tables == NULL) {
@@ -61,6 +70,7 @@ void extension_free_all(void) {
     for (int i = 0; i < 3; i++) {
         ExtTable *t = &ext_tables[i];
         for (int j = 0; j < t->count; j++) {
+            gc_unpin_env(t->items[j].closure_env);
             free(t->items[j].name);
         }
         free(t->items);
@@ -80,11 +90,18 @@ void register_extension(const ASTNode *node, Environment *env) {
 
     for (int i = 0; i < node->data.extend.method_count; i++) {
         ASTNode *m = node->data.extend.methods[i];
+        if (ext_find_conflict(tab, m->data.func_decl.name_hash, m->data.func_decl.name) >= 0) {
+            runtime_error("Duplicate extension method '%s' for target family", m->data.func_decl.name);
+        }
         ExtMethod em;
         em.hash = m->data.func_decl.name_hash;
         em.name = strdup(m->data.func_decl.name);
+        if (em.name == NULL) {
+            runtime_error("Out of memory copying extension method name");
+        }
         em.func_node = m;
         em.closure_env = env;
+        gc_pin_env(env);
         ext_push(tab, em);
     }
 }

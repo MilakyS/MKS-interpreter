@@ -183,6 +183,12 @@ static struct Token Read_IdentifierOrKeyword(struct Lexer *lexer) {
         {"continue", TOKEN_KW_CONTINUE},
         {"repeat", TOKEN_KW_REPEAT},
         {"in", TOKEN_KW_IN},
+        {"null", TOKEN_KW_NULL},
+        {"true", TOKEN_KW_TRUE},
+        {"false", TOKEN_KW_FALSE},
+        {"switch", TOKEN_KW_SWITCH},
+        {"case", TOKEN_KW_CASE},
+        {"default", TOKEN_KW_DEFAULT},
         {NULL, TOKEN_IDENTIFIER}
     };
 

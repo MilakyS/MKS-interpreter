@@ -1,0 +1,11 @@
+var x =: 2;
+
+if (x ?= 1) ->
+    Writeln("one");
+<- else if (x ?= 2) ->
+    Writeln("two");
+<- else if (x ?= 3) ->
+    Writeln("three");
+<- else ->
+    Writeln("other");
+<-

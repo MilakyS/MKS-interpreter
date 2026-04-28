@@ -29,6 +29,8 @@ typedef enum ASTNodeType {
     AST_RETURN,
     AST_BLOCK,
     AST_STRING,
+    AST_NULL,
+    AST_BOOL,
     AST_IF_BLOCK,
     AST_WHILE,
     AST_FUNC_DECL,
@@ -51,6 +53,7 @@ typedef enum ASTNodeType {
     AST_BREAK,
     AST_CONTINUE,
     AST_REPEAT,
+    AST_SWITCH,
     AST_EXPORT,
     AST_ADDRESS_OF,
     AST_DEREF,
@@ -64,6 +67,7 @@ typedef struct ASTNode {
     union {
         NumberLiteral number;
         char *string_value;
+        bool bool_value;
 
         struct {
             char *name;
@@ -249,6 +253,14 @@ typedef struct ASTNode {
         } repeat_stmt;
 
         struct {
+            struct ASTNode *value;
+            struct ASTNode **case_values;
+            struct ASTNode **case_bodies;
+            int case_count;
+            struct ASTNode *default_body;
+        } switch_stmt;
+
+        struct {
             struct ASTNode **args;
             int arg_count;
             bool is_newline;
@@ -265,6 +277,8 @@ ASTNode *create_ast_int(int64_t val, int line);
 ASTNode *create_ast_float(double val, int line);
 ASTNode *create_ast_num(double val, int line);
 ASTNode *create_ast_string(char *val, int line);
+ASTNode *create_ast_null(int line);
+ASTNode *create_ast_bool(bool value, int line);
 ASTNode *create_ast_array(ASTNode **elements, int count, int line);
 
 ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, int op, int line);
@@ -299,6 +313,7 @@ ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int 
 ASTNode *create_ast_break(int line);
 ASTNode *create_ast_continue(int line);
 ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, ASTNode *count_expr, ASTNode *body, int line);
+ASTNode *create_ast_switch(ASTNode *value, ASTNode **case_values, ASTNode **case_bodies, int case_count, ASTNode *default_body, int line);
 ASTNode *create_ast_export(ASTNode *decl, char *name_override, int line);
 
 

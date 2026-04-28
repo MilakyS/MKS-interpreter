@@ -1,0 +1,3 @@
+package "helper.lib";
+version "1.0.0";
+lib "src/lib.mks";

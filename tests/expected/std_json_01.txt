@@ -1,0 +1,9 @@
+mks
+2
+true
+true
+1
+x
+false
+[1,"x",null]
+{"a":1,"b":null}

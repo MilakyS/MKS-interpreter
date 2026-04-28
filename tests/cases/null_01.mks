@@ -1,0 +1,12 @@
+var x =: null;
+Writeln(x ?= null);
+Writeln(x !? 0);
+
+if (x) ->
+    Writeln("bad");
+<- else ->
+    Writeln("null-false");
+<-
+
+Writeln(Int(x));
+Writeln(String(x));
