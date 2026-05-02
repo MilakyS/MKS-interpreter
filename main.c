@@ -1194,6 +1194,11 @@ int main(const int argc, char **argv) {
         status = mks_run_file(&root_context, argv[argi], 1, 0);
     }
 
+    const char *gc_stats = getenv("MKS_GC_STATS");
+    if (gc_stats != NULL && strcmp(gc_stats, "1") == 0) {
+        gc_dump_stats();
+    }
+
     mks_context_dispose(&root_context);
     return status;
 }
