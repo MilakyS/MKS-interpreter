@@ -215,6 +215,11 @@ static size_t value_string_length(const RuntimeValue v, const char *fallback_cst
 
 static RuntimeValue concat_values_as_string(const RuntimeValue left_val,
                                             const RuntimeValue right_val) {
+    if (left_val.type == VAL_STRING)
+        orbit_touch_object((GCObject *)left_val.data.managed_string);
+    if (right_val.type == VAL_STRING)
+        orbit_touch_object((GCObject *)right_val.data.managed_string);
+
     char buf_l[MKS_NUM_BUF_SIZE];
     char buf_r[MKS_NUM_BUF_SIZE];
 
@@ -242,6 +247,85 @@ static RuntimeValue concat_values_as_string(const RuntimeValue left_val,
     res_str[len_l + len_r] = '\0';
 
     return make_string_owned(res_str, len_l + len_r);
+}
+
+RuntimeValue runtime_apply_binop(const int op, RuntimeValue left_val, RuntimeValue right_val) {
+    left_val = unwrap(left_val);
+    right_val = unwrap(right_val);
+
+    if (left_val.type == VAL_STRING && right_val.type == VAL_STRING) {
+        const char *s_l = left_val.data.managed_string->data;
+        const char *s_r = right_val.data.managed_string->data;
+
+        if (op == TOKEN_EQ) {
+            orbit_touch_object((GCObject *)left_val.data.managed_string);
+            orbit_touch_object((GCObject *)right_val.data.managed_string);
+            return make_bool(strcmp(s_l, s_r) == 0);
+        }
+        if (op == TOKEN_NOT_EQ) {
+            orbit_touch_object((GCObject *)left_val.data.managed_string);
+            orbit_touch_object((GCObject *)right_val.data.managed_string);
+            return make_bool(strcmp(s_l, s_r) != 0);
+        }
+    }
+
+    if (left_val.type == VAL_NULL || right_val.type == VAL_NULL) {
+        if (op == TOKEN_EQ) {
+            return make_bool(runtime_value_equals(left_val, right_val));
+        }
+        if (op == TOKEN_NOT_EQ) {
+            return make_bool(!runtime_value_equals(left_val, right_val));
+        }
+    }
+
+    if (op == TOKEN_PLUS && (left_val.type == VAL_STRING || right_val.type == VAL_STRING)) {
+        return concat_values_as_string(left_val, right_val);
+    }
+
+    if (op == TOKEN_EQ || op == TOKEN_NOT_EQ) {
+        const int equal = runtime_value_equals(left_val, right_val);
+        return make_bool(op == TOKEN_EQ ? equal : !equal);
+    }
+
+    if (runtime_value_is_number(left_val) && runtime_value_is_number(right_val)) {
+        const int both_int = left_val.type == VAL_INT && right_val.type == VAL_INT;
+        const int64_t li = runtime_value_as_int(left_val);
+        const int64_t ri = runtime_value_as_int(right_val);
+        const double l = runtime_value_as_double(left_val);
+        const double r = runtime_value_as_double(right_val);
+
+        switch (op) {
+            case TOKEN_PLUS:
+                return both_int ? make_int(li + ri) : make_float(l + r);
+            case TOKEN_MINUS:
+                return both_int ? make_int(li - ri) : make_float(l - r);
+            case TOKEN_STAR:
+                return both_int ? make_int(li * ri) : make_float(l * r);
+            case TOKEN_SLASH:
+                if (r == 0.0) {
+                    runtime_error("division by zero");
+                }
+                return make_float(l / r);
+            case TOKEN_MOD:
+                if (r == 0.0) {
+                    runtime_error("modulo by zero");
+                }
+                return both_int ? make_int(li % ri) : make_float(fmod(l, r));
+            case TOKEN_LESS:
+                return make_bool(both_int ? (li < ri) : (l < r));
+            case TOKEN_GREATER:
+                return make_bool(both_int ? (li > ri) : (l > r));
+            case TOKEN_LESS_EQUAL:
+                return make_bool(both_int ? (li <= ri) : (l <= r));
+            case TOKEN_GREATER_EQUAL:
+                return make_bool(both_int ? (li >= ri) : (l >= r));
+            default:
+                break;
+        }
+    }
+
+    runtime_type_error_binop(op, left_val, right_val);
+    return make_null();
 }
 
 RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
@@ -272,48 +356,6 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
     RuntimeValue right_val = unwrap(eval(node->data.binop.right, env));
     const int right_rooted = gc_push_root_if_needed(&right_val);
 
-    if (left_val.type == VAL_STRING && right_val.type == VAL_STRING) {
-        const char *s_l = left_val.data.managed_string->data;
-        const char *s_r = right_val.data.managed_string->data;
-
-        if (op == TOKEN_EQ) {
-            result = make_bool(strcmp(s_l, s_r) == 0);
-            if (right_rooted) gc_pop_root();
-            if (left_rooted) gc_pop_root();
-            return result;
-        }
-
-        if (op == TOKEN_NOT_EQ) {
-            result = make_bool(strcmp(s_l, s_r) != 0);
-            if (right_rooted) gc_pop_root();
-            if (left_rooted) gc_pop_root();
-            return result;
-        }
-    }
-
-    if (left_val.type == VAL_NULL || right_val.type == VAL_NULL) {
-        if (op == TOKEN_EQ) {
-            result = make_bool(runtime_value_equals(left_val, right_val));
-            if (right_rooted) gc_pop_root();
-            if (left_rooted) gc_pop_root();
-            return result;
-        }
-
-        if (op == TOKEN_NOT_EQ) {
-            result = make_bool(!runtime_value_equals(left_val, right_val));
-            if (right_rooted) gc_pop_root();
-            if (left_rooted) gc_pop_root();
-            return result;
-        }
-    }
-
-    if (op == TOKEN_PLUS && (left_val.type == VAL_STRING || right_val.type == VAL_STRING)) {
-        result = concat_values_as_string(left_val, right_val);
-        if (right_rooted) gc_pop_root();
-        if (left_rooted) gc_pop_root();
-        return result;
-    }
-
     if (op == TOKEN_AND || op == TOKEN_OR) {
         result = make_bool(
             (op == TOKEN_AND)
@@ -326,89 +368,8 @@ RuntimeValue eval_binop(const ASTNode *node, Environment *env) {
         return result;
     }
 
-    if (op == TOKEN_EQ || op == TOKEN_NOT_EQ) {
-        const int equal = runtime_value_equals(left_val, right_val);
-        result = make_bool(op == TOKEN_EQ ? equal : !equal);
-        if (right_rooted) gc_pop_root();
-        if (left_rooted) gc_pop_root();
-        return result;
-    }
-
-    if (runtime_value_is_number(left_val) && runtime_value_is_number(right_val)) {
-        const int both_int = left_val.type == VAL_INT && right_val.type == VAL_INT;
-        const int64_t li = runtime_value_as_int(left_val);
-        const int64_t ri = runtime_value_as_int(right_val);
-        const double l = runtime_value_as_double(left_val);
-        const double r = runtime_value_as_double(right_val);
-
-        switch (op) {
-            case TOKEN_PLUS:
-                result = both_int ? make_int(li + ri) : make_float(l + r);
-                break;
-
-            case TOKEN_MINUS:
-                result = both_int ? make_int(li - ri) : make_float(l - r);
-                break;
-
-            case TOKEN_STAR:
-                result = both_int ? make_int(li * ri) : make_float(l * r);
-                break;
-
-            case TOKEN_SLASH:
-                if (r == 0.0) {
-                    if (right_rooted) gc_pop_root();
-                    if (left_rooted) gc_pop_root();
-                    runtime_error("division by zero");
-                }
-                result = make_float(l / r);
-                break;
-
-            case TOKEN_MOD:
-                if (r == 0.0) {
-                    if (right_rooted) gc_pop_root();
-                    if (left_rooted) gc_pop_root();
-                    runtime_error("modulo by zero");
-                }
-                result = both_int ? make_int(li % ri) : make_float(fmod(l, r));
-                break;
-
-            case TOKEN_EQ:
-                result = make_bool(runtime_value_equals(left_val, right_val));
-                break;
-
-            case TOKEN_NOT_EQ:
-                result = make_bool(!runtime_value_equals(left_val, right_val));
-                break;
-
-            case TOKEN_LESS:
-                result = make_bool(both_int ? (li < ri) : (l < r));
-                break;
-
-            case TOKEN_GREATER:
-                result = make_bool(both_int ? (li > ri) : (l > r));
-                break;
-
-            case TOKEN_LESS_EQUAL:
-                result = make_bool(both_int ? (li <= ri) : (l <= r));
-                break;
-
-            case TOKEN_GREATER_EQUAL:
-                result = make_bool(both_int ? (li >= ri) : (l >= r));
-                break;
-
-            default:
-                if (right_rooted) gc_pop_root();
-                if (left_rooted) gc_pop_root();
-                runtime_type_error_binop(op, left_val, right_val);
-                return make_null();
-        }
-
-        if (right_rooted) gc_pop_root();
-        if (left_rooted) gc_pop_root();
-        return result;
-    }
+    result = runtime_apply_binop(op, left_val, right_val);
     if (right_rooted) gc_pop_root();
     if (left_rooted) gc_pop_root();
-    runtime_type_error_binop(op, left_val, right_val);
-    return make_null();
+    return result;
 }

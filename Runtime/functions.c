@@ -7,6 +7,7 @@
 #include "../GC/gc.h"
 #include "errors.h"
 #include "context.h"
+#include "../VM/vm.h"
 
 static inline RuntimeValue unwrap(RuntimeValue v) {
     if (v.type == VAL_RETURN) {
@@ -73,16 +74,20 @@ RuntimeValue eval_func_call(const ASTNode *node, Environment *env) {
             runtime_error("Function '%s' expects %d arguments, got %d", name, param_count, arg_count);
         }
 
-        Environment *local_env = env_create_child(callable.data.func.closure_env);
-        gc_push_env(local_env);
+        if (vm_has_compiled_function(decl)) {
+            result = vm_call_function_value(callable, args, arg_count, NULL);
+        } else {
+            Environment *local_env = env_create_child(callable.data.func.closure_env);
+            gc_push_env(local_env);
 
-        for (int i = 0; i < param_count; i++) {
-            env_set(local_env, decl->data.func_decl.params[i], args[i]);
+            for (int i = 0; i < param_count; i++) {
+                env_set(local_env, decl->data.func_decl.params[i], args[i]);
+            }
+
+            result = unwrap(eval(decl->data.func_decl.body, local_env));
+
+            gc_pop_env();
         }
-
-        result = unwrap(eval(decl->data.func_decl.body, local_env));
-
-        gc_pop_env();
     } else {
         while (pushed_roots-- > 0) {
             gc_pop_root();
@@ -139,7 +144,11 @@ RuntimeValue eval_blueprint_construct(RuntimeValue blueprint, RuntimeValue *args
     }
 
     if (entity->data.entity.init_body != NULL) {
-        unwrap(eval(entity->data.entity.init_body, obj_env));
+        if (vm_has_compiled_function(entity->data.entity.init_body)) {
+            (void)unwrap(vm_run_compiled_ast_body(obj_env, entity->data.entity.init_body));
+        } else {
+            (void)unwrap(vm_run_ast(obj_env, entity->data.entity.init_body));
+        }
     }
 
     gc_pop_env();

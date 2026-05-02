@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 struct RuntimeValue;
 struct Environment;
@@ -12,20 +13,33 @@ typedef enum {
     GC_OBJ_ARRAY,
     GC_OBJ_POINTER,
     GC_OBJ_ENV,
-    GC_OBJ_OBJECT
+    GC_OBJ_OBJECT,
+    GC_OBJ_STRING_BUILDER
 } GCObjectType;
+
+/* Orbit GC metadata flags */
+#define ORBIT_FLAG_HOT  ((uint8_t)0x01)
+
+/* Orbit GC heat thresholds */
+#define ORBIT_HOT_THRESHOLD  32
+#define ORBIT_WARM_THRESHOLD 4
 
 typedef struct GCObject {
     GCObjectType type;
     bool marked;
     size_t size;
     struct GCObject *next;
+    uint8_t  age;           /* incremented each collection the object survives */
+    uint16_t heat;          /* touch counter; decays by /2 each collection */
+    uint8_t  flags;         /* ORBIT_FLAG_HOT etc. */
+    size_t   external_size; /* heap memory owned by this object but outside GCObject */
 } GCObject;
 
 #define MAX_ROOTS 1024
 #define MAX_ENV_ROOTS 4096
 #define MAX_PINNED_ROOTS 2048
 #define MAX_PINNED_ENV_ROOTS 4096
+#define MAX_ROOT_SPANS 256
 
 typedef struct {
     GCObject *head;
@@ -42,10 +56,13 @@ typedef struct {
     struct Environment *env_roots[MAX_ENV_ROOTS];
     struct RuntimeValue *pinned_roots[MAX_PINNED_ROOTS];
     struct Environment *pinned_env_roots[MAX_PINNED_ENV_ROOTS];
+    struct RuntimeValue *root_spans[MAX_ROOT_SPANS];
+    int root_span_lengths[MAX_ROOT_SPANS];
     int roots_count;
     int env_roots_count;
     int pinned_roots_count;
     int pinned_env_roots_count;
+    int root_span_count;
 
     int debug_enabled;
 } GarbageCollector;
@@ -67,6 +84,8 @@ void gc_resume(void);
 
 void gc_push_root(struct RuntimeValue *val);
 void gc_pop_root(void);
+void gc_push_root_span(struct RuntimeValue *values, int count);
+void gc_pop_root_span(void);
 void gc_pin_root(struct RuntimeValue *val);
 void gc_unpin_root(struct RuntimeValue *val);
 int gc_value_needs_root(const struct RuntimeValue *val);
@@ -116,5 +135,11 @@ void gc_root_scope_end(MksGcRootScope *scope);
 void gc_set_debug(int enabled);
 void gc_dump_stats(void);
 void gc_dump_objects(void);
+
+/* Orbit GC hot/cold profiling API */
+void orbit_touch_object(GCObject *obj);
+void orbit_touch_value(const struct RuntimeValue *value);
+int  orbit_object_is_hot(const GCObject *obj);
+void orbit_dump_hot_objects(void);
 
 #endif

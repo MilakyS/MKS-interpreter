@@ -1,0 +1,5 @@
+var s =: "";
+repeat 25 ->
+    s =: s + "z";
+<-
+Writeln(s.len());

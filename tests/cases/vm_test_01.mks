@@ -1,0 +1,6 @@
+test "vm test ok" ->
+    var x =: 2 + 3;
+    if (x ?= 5) ->
+        Writeln("inside");
+    <-
+<-

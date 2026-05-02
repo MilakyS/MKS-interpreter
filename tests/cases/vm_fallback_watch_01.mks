@@ -1,0 +1,7 @@
+watch value;
+on change value ->
+    Writeln("watch", value);
+<-
+
+var value =: 1;
+value =: 2;

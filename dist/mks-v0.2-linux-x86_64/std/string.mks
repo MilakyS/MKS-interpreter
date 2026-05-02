@@ -1,0 +1,10 @@
+export fnc len(s) -> return s.len(); <-
+export fnc lower(s) -> return s.lower(); <-
+export fnc upper(s) -> return s.upper(); <-
+export fnc trim(s) -> return s.trim(); <-
+export fnc contains(s, sub) -> return s.contains(sub); <-
+export fnc starts_with(s, pre) -> return s.starts_with(pre); <-
+export fnc ends_with(s, suf) -> return s.ends_with(suf); <-
+export fnc replace(s, old, new) -> return s.replace(old, new); <-
+export fnc split(s, delim) -> return s.split(delim); <-
+export fnc join(arr, delim) -> return arr.join(delim); <-

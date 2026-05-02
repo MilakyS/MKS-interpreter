@@ -1,0 +1,11 @@
+var x =: 4;
+
+if(x > 5) ->
+    Writeln("big");
+<- else ->
+    Writeln("small");
+<-
+
+if(x ?= 4) ->
+    Writeln("eq");
+<-

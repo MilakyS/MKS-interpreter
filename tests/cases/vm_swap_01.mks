@@ -1,0 +1,12 @@
+var x =: 1;
+var y =: 2;
+
+x <--> y;
+
+Writeln(x);
+Writeln(y);
+
+var arr =: [10, 20];
+arr[0] <--> arr[1];
+Writeln(arr[0]);
+Writeln(arr[1]);

@@ -1,0 +1,8 @@
+var i =: 0;
+var n =: 100;
+
+while (i <= n) ->
+    i =: i + 1;
+<-
+
+Writeln(i);

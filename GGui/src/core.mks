@@ -1,0 +1,193 @@
+using std.tty as tty;
+
+export var BORDER_SINGLE =: 0;
+export var BORDER_DOUBLE =: 1;
+export var BORDER_ROUND =: 2;
+export var BORDER_HEAVY =: 3;
+
+export var ALIGN_LEFT =: 0;
+export var ALIGN_CENTER =: 1;
+export var ALIGN_RIGHT =: 2;
+
+export var FOCUS_MENU =: 0;
+export var FOCUS_INPUT =: 1;
+
+export fnc clamp(value, low, high) ->
+    if (value < low) -> return low; <-
+    if (value > high) -> return high; <-
+    return value;
+<-
+
+export fnc floor(value) ->
+    var out =: 0;
+    if (value < 0) ->
+        while (out > value) -> out =: out - 1; <-
+        return out;
+    <-
+    while (out + 1 <= value) -> out =: out + 1; <-
+    return out;
+<-
+
+export fnc div_floor(value, divisor) ->
+    if (divisor <= 0) -> return 0; <-
+    return floor(value / divisor);
+<-
+
+export fnc screen(default_w, default_h) ->
+    return tty.size_or(default_w, default_h);
+<-
+
+export fnc size() ->
+    return tty.size_or(80, 24);
+<-
+
+export fnc rect(x, y, w, h) ->
+    var r =: Object();
+    r.x =: x;
+    r.y =: y;
+    r.w =: w;
+    r.h =: h;
+    return r;
+<-
+
+export fnc screen_rect() ->
+    var s =: screen(80, 24);
+    return rect(1, 1, s.w, s.h);
+<-
+
+export fnc fit_rect(x, y, w, h) ->
+    var s =: screen(80, 24);
+
+    if (x < 1) ->
+        w =: w - (1 - x);
+        x =: 1;
+    <-
+    if (y < 1) ->
+        h =: h - (1 - y);
+        y =: 1;
+    <-
+    if (x > s.w) -> return rect(s.w, y, 0, 0); <-
+    if (y > s.h) -> return rect(x, s.h, 0, 0); <-
+    if (x + w - 1 > s.w) -> w =: s.w - x + 1; <-
+    if (y + h - 1 > s.h) -> h =: s.h - y + 1; <-
+    if (w < 0) -> w =: 0; <-
+    if (h < 0) -> h =: 0; <-
+    return rect(x, y, w, h);
+<-
+
+export fnc inner(rect) ->
+    return fit_rect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+<-
+
+export fnc inset(rect, padding) ->
+    return fit_rect(rect.x + padding, rect.y + padding, rect.w - (padding * 2), rect.h - (padding * 2));
+<-
+
+export fnc clamp_rect(rect, bounds) ->
+    var x =: rect.x;
+    var y =: rect.y;
+    var w =: rect.w;
+    var h =: rect.h;
+    if (x < bounds.x) ->
+        w =: w - (bounds.x - x);
+        x =: bounds.x;
+    <-
+    if (y < bounds.y) ->
+        h =: h - (bounds.y - y);
+        y =: bounds.y;
+    <-
+    if (x + w - 1 > bounds.x + bounds.w - 1) -> w =: bounds.x + bounds.w - x; <-
+    if (y + h - 1 > bounds.y + bounds.h - 1) -> h =: bounds.y + bounds.h - y; <-
+    if (w < 0) -> w =: 0; <-
+    if (h < 0) -> h =: 0; <-
+    return rect(x, y, w, h);
+<-
+
+export fnc split_vertical(rect, left_w, gap) ->
+    if (left_w < 1) -> left_w =: 1; <-
+    if (gap < 0) -> gap =: 0; <-
+    if (left_w + gap > rect.w) -> left_w =: rect.w - gap; <-
+    var out =: Object();
+    out.left =: core_rect(rect.x, rect.y, left_w, rect.h);
+    out.right =: core_rect(rect.x + left_w + gap, rect.y, rect.w - left_w - gap, rect.h);
+    return out;
+<-
+
+export fnc split_horizontal(rect, top_h, gap) ->
+    if (top_h < 1) -> top_h =: 1; <-
+    if (gap < 0) -> gap =: 0; <-
+    if (top_h + gap > rect.h) -> top_h =: rect.h - gap; <-
+    var out =: Object();
+    out.top =: core_rect(rect.x, rect.y, rect.w, top_h);
+    out.bottom =: core_rect(rect.x, rect.y + top_h + gap, rect.w, rect.h - top_h - gap);
+    return out;
+<-
+
+export fnc core_rect(x, y, w, h) ->
+    return rect(x, y, w, h);
+<-
+
+export fnc center_rect(w, h) ->
+    var s =: screen(80, 24);
+    if (w > s.w - 2) -> w =: s.w - 2; <-
+    if (h > s.h - 2) -> h =: s.h - 2; <-
+    if (w < 10) -> w =: s.w; <-
+    if (h < 5) -> h =: s.h; <-
+    var x =: div_floor(s.w - w, 2) + 1;
+    var y =: div_floor(s.h - h, 2) + 1;
+    return fit_rect(x, y, w, h);
+<-
+
+export fnc is_tty() ->
+    return tty.is_tty();
+<-
+
+export fnc begin() ->
+    if (tty.is_tty()) ->
+        tty.alt_screen();
+        tty.raw();
+        tty.hide_cursor();
+    <-
+    tty.clear();
+<-
+
+export fnc finish() ->
+    tty.reset();
+    if (tty.is_tty()) ->
+        tty.show_cursor();
+        tty.cooked();
+        tty.normal_screen();
+    <-
+<-
+
+export fnc clear() -> tty.clear(); <-
+export fnc flush() -> tty.flush(); <-
+export fnc reset() -> tty.reset(); <-
+export fnc cursor(x, y) -> tty.move(x, y); <-
+
+export fnc key() -> return tty.read_key(); <-
+export fnc event() -> return tty.read_key(); <-
+export fnc wait_key() -> return tty.read_key(); <-
+export fnc poll(ms) -> return tty.read_key_timeout(ms); <-
+export fnc readch() -> return tty.readch(); <-
+
+export fnc is_quit_key(key) ->
+    return key ?= "q" || key ?= "esc" || key ?= "ctrl_c";
+<-
+
+export fnc is_focus_next_key(key) ->
+    return key ?= "tab";
+<-
+
+export fnc is_focus_prev_key(key) ->
+    return key ?= "shift_tab";
+<-
+
+export fnc toggle_focus(focus) ->
+    if (focus ?= FOCUS_MENU) -> return FOCUS_INPUT; <-
+    return FOCUS_MENU;
+<-
+
+export fnc edit_key(value, cursor_pos, key) ->
+    return tty.edit_text(value, cursor_pos, key);
+<-

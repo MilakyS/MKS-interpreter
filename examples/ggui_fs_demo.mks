@@ -1,0 +1,206 @@
+using "../GGui/src/lib.mks" as gui;
+using std.fs as fs;
+
+fnc join_path(dir, name) ->
+    if (dir ?= "" || dir ?= ".") -> return name; <-
+    return dir + "/" + name;
+<-
+
+fnc load_items(dir) ->
+    var items =: fs.list(dir);
+    if (items ?= null) -> return ["<cannot read directory>"]; <-
+    if (items.len() ?= 0) -> return ["<empty>"]; <-
+    return items;
+<-
+
+fnc item_name(items, selected) ->
+    if (items.len() ?= 0) -> return "<none>"; <-
+    return items[selected];
+<-
+
+fnc item_path(dir, items, selected) ->
+    var name =: item_name(items, selected);
+    if (name ?= "<empty>" || name ?= "<cannot read directory>") -> return dir; <-
+    return join_path(dir, name);
+<-
+
+fnc item_type(path) ->
+    var st =: fs.stat(path);
+    if (st ?= null) -> return "unavailable"; <-
+    if (st.is_dir) -> return "directory"; <-
+    if (st.is_file) -> return "file"; <-
+    return "other";
+<-
+
+fnc item_size(path) ->
+    var st =: fs.stat(path);
+    if (st ?= null) -> return "n/a"; <-
+    return st.size;
+<-
+
+fnc draw_separators(s, desc_bottom, main_top, main_bottom, action_top, footer_top, split_x) ->
+    s.hline(2, desc_bottom, s.w - 2, "-");
+    s.hline(2, main_top - 1, s.w - 2, "-");
+    s.hline(2, action_top - 1, s.w - 2, "-");
+    s.hline(2, footer_top - 1, s.w - 2, "-");
+    s.vline(split_x, main_top, main_bottom - main_top + 1, "|");
+<-
+
+fnc draw_compact(s, dir, count) ->
+    s.clear();
+    s.box(1, 1, s.w, s.h);
+    s.text_clip(3, 2, s.w - 4, "GGui FS TUI");
+    if (s.h > 5) ->
+        s.hline(2, 3, s.w - 2, "-");
+        s.text_clip(3, 5, s.w - 4, "Terminal too small for full layout.");
+    <-
+    if (s.h > 7) ->
+        s.text_clip(3, 7, s.w - 4, "dir: " + dir);
+    <-
+    if (s.h > 9) ->
+        s.text_clip(3, 9, s.w - 4, "files: " + count);
+    <-
+    if (s.h > 2) ->
+        s.text_clip(3, s.h - 1, s.w - 4, "Resize terminal | q quits");
+    <-
+<-
+
+fnc draw_modal(s, title, body) ->
+    var mw =: gui.clamp(s.w - 12, 32, 58);
+    var mh =: gui.clamp(s.h - 8, 7, 10);
+    if (mw > s.w - 4) -> mw =: s.w - 4; <-
+    if (mh > s.h - 4) -> mh =: s.h - 4; <-
+    if (mw < 20) -> mw =: s.w - 2; <-
+    if (mh < 5) -> mh =: s.h - 2; <-
+    var mx =: ((s.w - mw) / 2) + 1;
+    var my =: ((s.h - mh) / 2) + 1;
+
+    s.modal(mx, my, mw, mh, title);
+    s.text_clip(mx + 2, my + 2, mw - 4, body);
+    if (mh > 6) ->
+        s.text_clip(mx + 2, my + 3, mw - 4, "Press Enter/Esc to close");
+    <-
+    if (mh > 4 && mw > 14) ->
+        s.text_clip(mx + mw - 12, my + mh - 2, 10, "[ Close ]");
+    <-
+<-
+
+fnc draw_app(dir, items, selected, modal, last_key) ->
+    var s =: gui.screen();
+    var count =: items.len();
+
+    if (s.w < 48 || s.h < 16) ->
+        draw_compact(s, dir, count);
+        s.render();
+        return null;
+    <-
+
+    var desc_bottom =: 6;
+    var main_top =: 7;
+    var footer_top =: s.h - 1;
+    var action_top =: s.h - 4;
+    var main_bottom =: action_top - 2;
+    var main_h =: main_bottom - main_top + 1;
+    var left_w =: gui.clamp(gui.div_floor(s.w - 4, 3), 20, 34);
+    var split_x =: 2 + left_w + 1;
+    var right_x =: split_x + 2;
+    var right_w =: s.w - right_x - 1;
+    var current =: item_path(dir, items, selected);
+    var name =: item_name(items, selected);
+
+    s.clear();
+    s.box(1, 1, s.w, s.h);
+    s.text_clip(3, 2, s.w - 4, "GGui FS TUI");
+    s.text_clip(s.w - 26, 2, 24, "ggui + std.fs");
+
+    s.text_clip(3, 4, s.w - 4, "A minimal package/file manager demo with strict regions and full-screen rendering.");
+    s.text_clip(3, 5, s.w - 4, "Up/Down selects, Enter opens, q/Esc exits. Current dir: " + dir);
+
+    draw_separators(s, desc_bottom, main_top, main_bottom, action_top, footer_top, split_x);
+
+    s.text_clip(3, main_top, left_w - 1, "Files");
+    s.text_clip(right_x, main_top, right_w, "Details");
+
+    var max_files =: main_h - 2;
+    var i =: 0;
+    while (i < max_files && i < items.len()) ->
+        var marker =: "  ";
+        if (i ?= selected) -> marker =: "> "; <-
+        s.text_clip(3, main_top + 1 + i, left_w - 1, marker + items[i]);
+        i =: i + 1;
+    <-
+
+    s.text_clip(right_x, main_top + 2, right_w, "name: " + name);
+    s.text_clip(right_x, main_top + 3, right_w, "type: " + item_type(current));
+    s.text_clip(right_x, main_top + 4, right_w, "size: " + item_size(current));
+    s.text_clip(right_x, main_top + 6, right_w, "path: " + current);
+    s.text_clip(right_x, main_top + 8, right_w, "last key: " + last_key);
+
+    s.text_clip(3, action_top, s.w - 4, "Actions");
+    s.text_clip(3, action_top + 1, 20, "[ Open ] [ Apply ]");
+    var status_x =: s.w - 30;
+    var progress_w =: status_x - 27;
+    if (progress_w < 8) -> progress_w =: 8; <-
+    s.progress(25, action_top + 1, progress_w, selected + 1, count);
+    s.text_clip(status_x, action_top + 1, 28, "GGui " + gui.VERSION + " | files: " + count);
+
+    s.text_clip(3, footer_top, s.w - 4, "Status: framebuffer render fills the full terminal; no background bleed.");
+
+    if (modal ?= 1) ->
+        draw_modal(s, "File details", name + " | " + item_type(current) + " | size: " + item_size(current));
+    <-
+
+    s.render();
+<-
+
+fnc main() ->
+    var dir =: ".";
+    var items =: load_items(dir);
+    var selected =: 0;
+    var modal =: 0;
+    var last_key =: "none";
+
+    if (gui.is_tty() ?= false) ->
+        draw_app(dir, items, selected, 0, "non-tty");
+        return null;
+    <-
+
+    gui.begin();
+    defer ->
+        gui.finish();
+    <-
+
+    var running =: true;
+    while (running) ->
+        draw_app(dir, items, selected, modal, last_key);
+        var key =: gui.poll(100);
+        if (key ?= null) -> continue; <-
+        last_key =: key;
+
+        if (gui.is_quit_key(key)) ->
+            if (modal ?= 1) ->
+                modal =: 0;
+            <- else ->
+                running =: false;
+            <-
+        <- else if (modal ?= 1) ->
+            if (key ?= "enter") -> modal =: 0; <-
+        <- else if (key ?= "up") ->
+            selected =: selected - 1;
+            if (selected < 0) -> selected =: 0; <-
+        <- else if (key ?= "down") ->
+            selected =: selected + 1;
+            if (selected >= items.len()) -> selected =: items.len() - 1; <-
+        <- else if (key ?= "enter") ->
+            var current =: item_path(dir, items, selected);
+            var st =: fs.stat(current);
+            if ((st ?= null) ?= false && st.is_dir) ->
+                dir =: current;
+                items =: load_items(dir);
+                selected =: 0;
+            <- else ->
+                modal =: 1;
+            <-
+        <-
+    <-
+<-

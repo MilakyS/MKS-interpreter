@@ -1,0 +1,8 @@
+var a =: 100;
+var b =: 7;
+
+a =: a + b;
+a =: a - b;
+a =: a * b;
+
+Writeln(a);

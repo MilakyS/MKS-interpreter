@@ -1,0 +1,150 @@
+using std.fs as fs;
+using std.json as json;
+
+entity TodoStore(path) ->
+    init ->
+        self.path =: path;
+        if (fs.exists(self.path) ?= 0) ->
+            fs.write(self.path, "[]");
+        <-
+    <-
+
+    method read_items() ->
+        var text =: fs.read(self.path);
+        if (text ?= null || text.trim() ?= "") ->
+            return [];
+        <-
+        return json.parse(text);
+    <-
+
+    method save_items(items) ->
+        fs.write(self.path, json.stringify(items));
+        return 1;
+    <-
+
+    method add(title) ->
+        if (title ?= "") -> return 0; <-
+
+        var items =: self.read_items();
+        var item =: Object();
+
+        item.title =: title;
+        item.done =: false;
+
+        items.inject(item);
+        self.save_items(items);
+        return 1;
+    <-
+
+    method list_items() ->
+        var items =: self.read_items();
+
+        if (items.len() ?= 0) ->
+            Writeln("No todos.");
+            return 0;
+        <-
+
+        var i =: 0;
+        while (i < items.len()) ->
+            var item =: items[i];
+            var mark =: "[ ]";
+
+            if (item.done) ->
+                mark =: "[x]";
+            <-
+
+            Writeln(i, ": ", mark, " ", item.title);
+            i =: i + 1;
+        <-
+
+        return items.len();
+    <-
+
+    method mark_done(index) ->
+        var items =: self.read_items();
+
+        if (index < 0 || index >= items.len()) ->
+            return 0;
+        <-
+
+        items[index].done =: true;
+        self.save_items(items);
+        return 1;
+    <-
+
+    method remove_at(index) ->
+        var items =: self.read_items();
+
+        if (index < 0 || index >= items.len()) ->
+            return 0;
+        <-
+
+        items.exclude(index);
+        self.save_items(items);
+        return 1;
+    <-
+
+    method clear_all() ->
+        fs.write(self.path, "[]");
+        return 1;
+    <-
+<-
+
+fnc prompt(text) ->
+    return ReadLine(text);
+<-
+
+fnc prompt_index(text) ->
+    return Int(ReadLine(text));
+<-
+
+fnc main() ->
+    var store =: TodoStore("todos.json");
+
+    Writeln("MKS Todo JSON Demo");
+
+    while (1) ->
+        Writeln("");
+        Writeln("Commands: add, list, done, remove, clear, quit");
+
+        var cmd =: ReadWord("> ");
+
+        if (cmd ?= "add") ->
+            var title =: prompt("Title: ").trim();
+
+            if (store.add(title) ?= 1) ->
+                Writeln("Added.");
+            <- else ->
+                Writeln("Nothing added.");
+            <-
+        <- else if (cmd ?= "list") ->
+            store.list_items();
+        <- else if (cmd ?= "done") ->
+            var idx =: prompt_index("Index: ");
+
+            if (store.mark_done(idx) ?= 1) ->
+                Writeln("Updated.");
+            <- else ->
+                Writeln("Bad index.");
+            <-
+        <- else if (cmd ?= "remove") ->
+            var idx2 =: prompt_index("Index: ");
+
+            if (store.remove_at(idx2) ?= 1) ->
+                Writeln("Removed.");
+            <- else ->
+                Writeln("Bad index.");
+            <-
+        <- else if (cmd ?= "clear") ->
+            store.clear_all();
+            Writeln("Cleared.");
+        <- else if (cmd ?= "quit") ->
+            Writeln("Bye.");
+            break;
+        <- else ->
+            Writeln("Unknown command.");
+        <-
+    <-
+<-
+
+main();

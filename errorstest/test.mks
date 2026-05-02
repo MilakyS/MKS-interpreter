@@ -1,0 +1,5 @@
+using "std/math" as math;
+
+Writeln(math.sin(45));
+Writeln(a);
+Writeln("Hi");

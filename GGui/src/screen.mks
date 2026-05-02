@@ -1,0 +1,335 @@
+using std.tty as tty;
+using ggui.core as core;
+
+export fnc make_repeat(ch, count) ->
+    var out =: "";
+    var i =: 0;
+    while (i < count) ->
+        out =: out + ch;
+        i =: i + 1;
+    <-
+    return out;
+<-
+
+export fnc make_row(ch, count) ->
+    var row =: [];
+    var i =: 0;
+    while (i < count) ->
+        row.inject(ch);
+        i =: i + 1;
+    <-
+    return row;
+<-
+
+export fnc first_char(ch) ->
+    if (ch.len() ?= 0) -> return " "; <-
+    return ch[0];
+<-
+
+export fnc cell(value) ->
+    var out =: 0;
+    if (value < 0) ->
+        while (out > value) -> out =: out - 1; <-
+        return out;
+    <-
+    while (out + 1 <= value) -> out =: out + 1; <-
+    return out;
+<-
+
+entity Screen(w, h) ->
+    init ->
+        if (w < 1) -> w =: 1; <-
+        if (h < 1) -> h =: 1; <-
+        self.w =: w;
+        self.h =: h;
+        self.rows =: [];
+        self.lines =: [];
+        self.dirty_rows =: [];
+        self.dirty_any =: 1;
+        self.fill(" ");
+    <-
+
+    method fill(ch) ->
+        ch =: first_char(ch);
+        var line =: make_repeat(ch, self.w);
+        if (self.rows.len() ?= self.h && self.lines.len() ?= self.h && self.dirty_rows.len() ?= self.h) ->
+            var y =: 0;
+            while (y < self.h) ->
+                var row =: self.rows[y];
+                var x =: 0;
+                while (x < self.w) ->
+                    row[x] =: ch;
+                    x =: x + 1;
+                <-
+                self.lines[y] =: line;
+                self.dirty_rows[y] =: 1;
+                y =: y + 1;
+            <-
+        <- else ->
+            self.rows =: [];
+            self.lines =: [];
+            self.dirty_rows =: [];
+            var y =: 0;
+            while (y < self.h) ->
+                self.rows.inject(make_row(ch, self.w));
+                self.lines.inject(line);
+                self.dirty_rows.inject(1);
+                y =: y + 1;
+            <-
+        <-
+        self.dirty_any =: 1;
+        return self;
+    <-
+
+    method clear() ->
+        return self.fill(" ");
+    <-
+
+    method set(x, y, ch) ->
+        x =: cell(x);
+        y =: cell(y);
+        if (x < 1 || y < 1 || x > self.w || y > self.h) -> return self; <-
+        ch =: first_char(ch);
+        var row =: self.rows[y - 1];
+        if (row[x - 1] ?= ch) -> return self; <-
+        row[x - 1] =: ch;
+        self.dirty_rows[y - 1] =: 1;
+        self.dirty_any =: 1;
+        return self;
+    <-
+
+    method text(x, y, value) ->
+        return self.text_clip(x, y, self.w - x + 1, value);
+    <-
+
+    method text_clip(x, y, max_w, value) ->
+        x =: cell(x);
+        y =: cell(y);
+        max_w =: cell(max_w);
+        if (y < 1 || y > self.h || max_w <= 0 || x > self.w) -> return self; <-
+
+        var start =: 0;
+        if (x < 1) ->
+            start =: 1 - x;
+            max_w =: max_w - start;
+            x =: 1;
+        <-
+        if (max_w <= 0) -> return self; <-
+
+        var row =: self.rows[y - 1];
+        var changed =: 0;
+        var i =: 0;
+        while ((start + i) < value.len() && i < max_w && (x + i) <= self.w) ->
+            var ch =: value[start + i];
+            if ((row[x + i - 1] ?= ch) ?= false) ->
+                row[x + i - 1] =: ch;
+                changed =: 1;
+            <-
+            i =: i + 1;
+        <-
+        if (changed) ->
+            self.dirty_rows[y - 1] =: 1;
+            self.dirty_any =: 1;
+        <-
+        return self;
+    <-
+
+    method hline(x, y, w, ch) ->
+        x =: cell(x);
+        y =: cell(y);
+        w =: cell(w);
+        if (w <= 0 || y < 1 || y > self.h || x > self.w) -> return self; <-
+        if (x < 1) ->
+            w =: w - (1 - x);
+            x =: 1;
+        <-
+        if (w <= 0) -> return self; <-
+        var i =: 0;
+        ch =: first_char(ch);
+        var row =: self.rows[y - 1];
+        var changed =: 0;
+        while (i < w && (x + i) <= self.w) ->
+            if ((row[x + i - 1] ?= ch) ?= false) ->
+                row[x + i - 1] =: ch;
+                changed =: 1;
+            <-
+            i =: i + 1;
+        <-
+        if (changed) ->
+            self.dirty_rows[y - 1] =: 1;
+            self.dirty_any =: 1;
+        <-
+        return self;
+    <-
+
+    method divider(x, y, w) ->
+        return self.hline(x, y, w, "-");
+    <-
+
+    method vline(x, y, h, ch) ->
+        x =: cell(x);
+        y =: cell(y);
+        h =: cell(h);
+        if (h <= 0 || x < 1 || x > self.w || y > self.h) -> return self; <-
+        if (y < 1) ->
+            h =: h - (1 - y);
+            y =: 1;
+        <-
+        if (h <= 0) -> return self; <-
+        ch =: first_char(ch);
+        var i =: 0;
+        while (i < h && (y + i) <= self.h) ->
+            var row =: self.rows[y + i - 1];
+            if ((row[x - 1] ?= ch) ?= false) ->
+                row[x - 1] =: ch;
+                self.dirty_rows[y + i - 1] =: 1;
+                self.dirty_any =: 1;
+            <-
+            i =: i + 1;
+        <-
+        return self;
+    <-
+
+    method fill_rect(x, y, w, h, ch) ->
+        x =: cell(x);
+        y =: cell(y);
+        w =: cell(w);
+        h =: cell(h);
+        if (w <= 0 || h <= 0) -> return self; <-
+        var row =: 0;
+        while (row < h) ->
+            self.hline(x, y + row, w, ch);
+            row =: row + 1;
+        <-
+        return self;
+    <-
+
+    method box(x, y, w, h) ->
+        x =: cell(x);
+        y =: cell(y);
+        w =: cell(w);
+        h =: cell(h);
+        if (w < 2 || h < 2) -> return self; <-
+        self.hline(x + 1, y, w - 2, "-");
+        self.hline(x + 1, y + h - 1, w - 2, "-");
+        self.vline(x, y + 1, h - 2, "|");
+        self.vline(x + w - 1, y + 1, h - 2, "|");
+        self.set(x, y, "+");
+        self.set(x + w - 1, y, "+");
+        self.set(x, y + h - 1, "+");
+        self.set(x + w - 1, y + h - 1, "+");
+        return self;
+    <-
+
+    method panel(x, y, w, h, title) ->
+        x =: cell(x);
+        y =: cell(y);
+        w =: cell(w);
+        h =: cell(h);
+        self.box(x, y, w, h);
+        if (w > 4 && title.len() > 0) ->
+            self.text_clip(x + 2, y, w - 4, title);
+        <-
+        return self;
+    <-
+
+    method pane(x, y, w, h, title, focused) ->
+        x =: cell(x);
+        y =: cell(y);
+        w =: cell(w);
+        h =: cell(h);
+        if (w < 2 || h < 2) -> return self; <-
+        self.box(x, y, w, h);
+        if (focused) ->
+            self.hline(x + 1, y, w - 2, "=");
+            self.hline(x + 1, y + h - 1, w - 2, "=");
+        <-
+        if (w > 4 && title.len() > 0) ->
+            self.text_clip(x + 2, y, w - 4, title);
+        <-
+        return self;
+    <-
+
+    method pane_status(x, y, w, h, text, focused) ->
+        x =: cell(x);
+        y =: cell(y);
+        w =: cell(w);
+        h =: cell(h);
+        if (w < 3 || h < 2) -> return self; <-
+        var fill =: "-";
+        if (focused) -> fill =: "="; <-
+        self.hline(x + 1, y + h - 1, w - 2, fill);
+        self.text_clip(x + 2, y + h - 1, w - 4, text);
+        return self;
+    <-
+
+    method command_bar(text) ->
+        if (self.h < 1) -> return self; <-
+        self.fill_rect(1, self.h, self.w, 1, " ");
+        self.text_clip(2, self.h, self.w - 2, text);
+        return self;
+    <-
+
+    method progress(x, y, w, value, max) ->
+        x =: cell(x);
+        y =: cell(y);
+        w =: cell(w);
+        if (w < 3) -> return self; <-
+        if (max <= 0) -> max =: 1; <-
+        if (value < 0) -> value =: 0; <-
+        if (value > max) -> value =: max; <-
+        var inner =: w - 2;
+        var filled =: (inner * value) / max;
+        self.set(x, y, "[");
+        self.hline(x + 1, y, filled, "#");
+        self.hline(x + 1 + filled, y, inner - filled, "-");
+        self.set(x + w - 1, y, "]");
+        return self;
+    <-
+
+    method modal(x, y, w, h, title) ->
+        x =: cell(x);
+        y =: cell(y);
+        w =: cell(w);
+        h =: cell(h);
+        if (w < 2 || h < 2) -> return self; <-
+        self.fill_rect(x, y, w, h, " ");
+        self.panel(x, y, w, h, title);
+        return self;
+    <-
+
+    method center_panel(w, h, title) ->
+        w =: cell(w);
+        h =: cell(h);
+        if (w > self.w - 4) -> w =: self.w - 4; <-
+        if (h > self.h - 4) -> h =: self.h - 4; <-
+        if (w < 16) -> w =: self.w - 2; <-
+        if (h < 5) -> h =: self.h - 2; <-
+        var x =: cell((self.w - w) / 2) + 1;
+        var y =: cell((self.h - h) / 2) + 1;
+        self.modal(x, y, w, h, title);
+        return core.rect(x, y, w, h);
+    <-
+
+    method render() ->
+        if (self.dirty_any ?= false) -> return self; <-
+        var y =: 1;
+        while (y <= self.h) ->
+            if (self.dirty_rows[y - 1]) ->
+                var line =: self.rows[y - 1].join("");
+                self.lines[y - 1] =: line;
+                tty.write_at(1, y, line);
+                self.dirty_rows[y - 1] =: 0;
+            <-
+            y =: y + 1;
+        <-
+        tty.flush();
+        self.dirty_any =: 0;
+        return self;
+    <-
+<-
+
+export fnc new() ->
+    var size =: core.screen(80, 24);
+    return Screen(size.w, size.h);
+<-

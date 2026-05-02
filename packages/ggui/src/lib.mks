@@ -1,0 +1,45 @@
+using ggui.core as core;
+using ggui.widgets as widgets;
+using ggui.demo as demo_mod;
+
+export var VERSION =: "0.2.0";
+
+export var BORDER_SINGLE =: core.BORDER_SINGLE;
+export var BORDER_DOUBLE =: core.BORDER_DOUBLE;
+export var BORDER_ROUND =: core.BORDER_ROUND;
+export var BORDER_HEAVY =: core.BORDER_HEAVY;
+
+export var ALIGN_LEFT =: core.ALIGN_LEFT;
+export var ALIGN_CENTER =: core.ALIGN_CENTER;
+export var ALIGN_RIGHT =: core.ALIGN_RIGHT;
+
+export fnc begin() -> core.begin(); <-
+export fnc finish() -> core.finish(); <-
+export fnc clear() -> core.clear(); <-
+export fnc flush() -> core.flush(); <-
+export fnc reset() -> core.reset(); <-
+export fnc cursor(x, y) -> core.cursor(x, y); <-
+export fnc screen(w, h) -> return core.screen(w, h); <-
+export fnc is_tty() -> return core.is_tty(); <-
+export fnc event() -> return core.event(); <-
+export fnc poll(ms) -> return core.poll(ms); <-
+export fnc clamp(value, low, high) -> return core.clamp(value, low, high); <-
+
+export fnc text(x, y, w, value) -> widgets.text(x, y, w, value); <-
+export fnc text_center(x, y, w, value) -> widgets.text_center(x, y, w, value); <-
+export fnc paragraph(x, y, w, h, value) -> widgets.paragraph(x, y, w, h, value); <-
+export fnc frame(x, y, w, h, title) -> widgets.frame(x, y, w, h, title); <-
+export fnc panel(x, y, w, h, title, body) -> widgets.panel(x, y, w, h, title, body); <-
+export fnc floating(x, y, w, h, title, body) -> widgets.floating(x, y, w, h, title, body); <-
+export fnc status(x, y, w, value) -> widgets.status(x, y, w, value); <-
+export fnc status_bar(value) -> widgets.status_bar(value); <-
+export fnc button(x, y, w, label, active) -> widgets.button(x, y, w, label, active); <-
+export fnc input(x, y, w, label, value, cursor_pos, focused) -> widgets.input(x, y, w, label, value, cursor_pos, focused); <-
+export fnc input_box(x, y, w, label, value, focused) -> widgets.input_box(x, y, w, label, value, focused); <-
+export fnc textarea(x, y, w, h, title, value, focused) -> widgets.textarea(x, y, w, h, title, value, focused); <-
+export fnc list(x, y, w, h, title, items, selected) -> widgets.list(x, y, w, h, title, items, selected); <-
+export fnc menu(x, y, w, title, items, selected) -> widgets.menu(x, y, w, title, items, selected); <-
+export fnc help(x, y, w, value) -> widgets.help(x, y, w, value); <-
+export fnc app_frame(title, status_text) -> widgets.app_frame(title, status_text); <-
+
+export fnc demo() -> demo_mod.demo(); <-

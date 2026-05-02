@@ -1,0 +1,4 @@
+Writeln(1 < 2 && 2 < 3);
+Writeln(0 && 123);
+Writeln(0 || 5);
+Writeln(1 || 0);

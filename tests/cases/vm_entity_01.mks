@@ -1,0 +1,14 @@
+entity Box(value) ->
+    method get() ->
+        return self.value;
+    <-
+
+    method grow(delta) ->
+        self.value =: self.value + delta;
+        return self.value;
+    <-
+<-
+
+var box =: Box(10);
+Writeln(box.get());
+Writeln(box.grow(5));

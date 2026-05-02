@@ -1,0 +1,16 @@
+var arr =: [1, 2];
+arr.inject(3);
+Writeln(arr.len());
+
+var text =: "  MKS  ";
+Writeln(text.trim().lower());
+
+var obj =: Object();
+obj.name =: "core";
+
+fnc label() ->
+    return self.name + "-vm";
+<-
+
+obj.label =: label;
+Writeln(obj.label());

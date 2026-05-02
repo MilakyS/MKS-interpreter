@@ -1,0 +1,148 @@
+using std.tty as tty;
+using ggui.core as core;
+
+export fnc text(x, y, w, value) ->
+    var r =: core.fit_rect(x, y, w, 1);
+    x =: r.x; y =: r.y; w =: r.w;
+    if (w <= 0) -> return null; <-
+    tty.text(x, y, w, value, core.ALIGN_LEFT, 1);
+<-
+
+export fnc text_center(x, y, w, value) ->
+    var r =: core.fit_rect(x, y, w, 1);
+    x =: r.x; y =: r.y; w =: r.w;
+    if (w <= 0) -> return null; <-
+    tty.text(x, y, w, value, core.ALIGN_CENTER, 1);
+<-
+
+export fnc paragraph(x, y, w, h, value) ->
+    var r =: core.fit_rect(x, y, w, h);
+    x =: r.x; y =: r.y; w =: r.w; h =: r.h;
+    if (w <= 0 || h <= 0) -> return null; <-
+    tty.text_wrap(x, y, w, h, value, 1);
+<-
+
+export fnc frame(x, y, w, h, title) ->
+    var r =: core.fit_rect(x, y, w, h);
+    x =: r.x; y =: r.y; w =: r.w; h =: r.h;
+    if (w < 2 || h < 2) -> return null; <-
+    tty.window(x, y, w, h, title, core.BORDER_ROUND);
+<-
+
+export fnc panel(x, y, w, h, title, body) ->
+    var r =: core.fit_rect(x, y, w, h);
+    x =: r.x; y =: r.y; w =: r.w; h =: r.h;
+    if (w < 2 || h < 2) -> return null; <-
+    tty.window(x, y, w, h, title, core.BORDER_ROUND);
+    if (w > 2 && h > 2) ->
+        tty.text_wrap(x + 1, y + 1, w - 2, h - 2, body, 1);
+    <-
+<-
+
+export fnc modal(title, body, button_label) ->
+    var s =: core.screen(80, 24);
+    var r =: core.center_rect(core.clamp(s.w - 8, 28, 58), core.clamp(s.h - 6, 6, 9));
+    frame(r.x, r.y, r.w, r.h, title);
+    paragraph(r.x + 2, r.y + 2, r.w - 4, r.h - 4, body);
+    if (r.h > 5 && r.w > 14) ->
+        button(r.x + r.w - 12, r.y + r.h - 2, 9, button_label, 1);
+    <-
+<-
+
+export fnc box(x, y, w, h) ->
+    var r =: core.fit_rect(x, y, w, h);
+    x =: r.x; y =: r.y; w =: r.w; h =: r.h;
+    if (w < 2 || h < 2) -> return null; <-
+    tty.box(x, y, w, h, core.BORDER_SINGLE);
+<-
+
+export fnc progress(x, y, w, value, max) ->
+    var r =: core.fit_rect(x, y, w, 1);
+    x =: r.x; y =: r.y; w =: r.w;
+    if (w < 3) -> return null; <-
+    if (max <= 0) -> max =: 1; <-
+    if (value < 0) -> value =: 0; <-
+    if (value > max) -> value =: max; <-
+
+    var inner =: w - 2;
+    var filled =: (inner * value) / max;
+    var bar =: "[";
+    var i =: 0;
+    while (i < inner) ->
+        if (i < filled) ->
+            bar =: bar + "#";
+        <- else ->
+            bar =: bar + "-";
+        <-
+        i =: i + 1;
+    <-
+    bar =: bar + "]";
+    tty.text(x, y, w, bar, core.ALIGN_LEFT, 1);
+<-
+
+export fnc labeled_progress(x, y, w, label, value, max) ->
+    text(x, y, w, label);
+    progress(x, y + 1, w, value, max);
+<-
+
+export fnc status(x, y, w, value) ->
+    var r =: core.fit_rect(x, y, w, 1);
+    x =: r.x; y =: r.y; w =: r.w;
+    if (w <= 0) -> return null; <-
+    tty.reverse();
+    tty.text(x, y, w, value, core.ALIGN_LEFT, 1);
+    tty.reset();
+<-
+
+export fnc status_bar(value) ->
+    var s =: core.screen(80, 24);
+    status(1, s.h, s.w, value);
+<-
+
+export fnc button(x, y, w, label, active) ->
+    var r =: core.fit_rect(x, y, w, 1);
+    x =: r.x; y =: r.y; w =: r.w;
+    if (w <= 0) -> return null; <-
+    tty.button_flat(x, y, w, label, active);
+<-
+
+export fnc input(x, y, w, label, value, cursor_pos, focused) ->
+    var r =: core.fit_rect(x, y, w, 1);
+    x =: r.x; y =: r.y; w =: r.w;
+    if (w <= 0) -> return null; <-
+    tty.input_line(x, y, w, label, value, cursor_pos, focused);
+<-
+
+export fnc input_idle(x, y, w, label, value) ->
+    input(x, y, w, label, value, 0, 0);
+<-
+
+export fnc list(x, y, w, h, title, items, selected) ->
+    var r =: core.fit_rect(x, y, w, h);
+    x =: r.x; y =: r.y; w =: r.w; h =: r.h;
+    if (w < 2 || h < 2) -> return null; <-
+    tty.window(x, y, w, h, title, core.BORDER_ROUND);
+
+    var max =: h - 2;
+    var count =: items.len();
+    if (count > max) -> count =: max; <-
+
+    var i =: 0;
+    while (i < count) ->
+        if (i ?= selected) -> tty.reverse(); <-
+        tty.text(x + 1, y + 1 + i, w - 2, items[i], core.ALIGN_LEFT, 1);
+        if (i ?= selected) -> tty.reset(); <-
+        i =: i + 1;
+    <-
+<-
+
+export fnc focus_status(focus) ->
+    if (focus ?= core.FOCUS_INPUT) -> return "input"; <-
+    return "menu";
+<-
+
+export fnc app_frame(title, status_text) ->
+    var s =: core.screen(80, 24);
+    tty.window(1, 1, s.w, s.h, title, core.BORDER_ROUND);
+    status(2, s.h, s.w - 2, status_text);
+<-

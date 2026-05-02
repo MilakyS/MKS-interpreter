@@ -1,0 +1,4 @@
+using std.path as path;
+
+Writeln(path.ext("demo.txt"));
+Writeln(path.name("/tmp/demo.txt"));

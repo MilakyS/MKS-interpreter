@@ -1,0 +1,6 @@
+export var PI =: 3;
+export var VERSION =: "1.0.2";
+
+export fnc get_circle_area(r) ->
+    return PI * r * r;
+<-

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "../Runtime/value.h"
 #include "../Runtime/errors.h"
@@ -32,6 +33,7 @@ static const char *gc_type_name(const GCObjectType type) {
         case GC_OBJ_POINTER:return "POINTER";
         case GC_OBJ_ENV:    return "ENV";
         case GC_OBJ_OBJECT: return "OBJECT";
+        case GC_OBJ_STRING_BUILDER: return "STRING_BUILDER";
         default:            return "UNKNOWN";
     }
 }
@@ -127,6 +129,10 @@ static void gc_mark_value_push(GCMarkStack *stack, const RuntimeValue *val) {
             gc_mark_object_push(stack, (GCObject *)val->data.blueprint.closure_env);
             break;
 
+        case VAL_STRING_BUILDER:
+            gc_mark_object_push(stack, (GCObject *)val->data.string_builder);
+            break;
+
         case VAL_RETURN: {
             RuntimeValue tmp = *val;
             tmp.type = tmp.original_type;
@@ -159,6 +165,14 @@ static void gc_mark_all_iterative(Environment *global_env, Environment *current_
     for (int i = 0; i < mks_gc.pinned_roots_count; i++) {
         GC_LOG("[GC] root pinned[%d]=%p\n", i, (void *)mks_gc.pinned_roots[i]);
         gc_mark_value_push(&stack, mks_gc.pinned_roots[i]);
+    }
+
+    for (int i = 0; i < mks_gc.root_span_count; i++) {
+        RuntimeValue *values = mks_gc.root_spans[i];
+        const int count = mks_gc.root_span_lengths[i];
+        for (int j = 0; j < count; j++) {
+            gc_mark_value_push(&stack, &values[j]);
+        }
     }
 
     for (int i = 0; i < mks_gc.env_roots_count; i++) {
@@ -257,6 +271,7 @@ void gc_init(const size_t initial_threshold) {
     mks_gc.env_roots_count = 0;
     mks_gc.pinned_roots_count = 0;
     mks_gc.pinned_env_roots_count = 0;
+    mks_gc.root_span_count = 0;
     mks_gc.debug_enabled = 0;
 }
 
@@ -311,6 +326,18 @@ void gc_push_root(RuntimeValue *val) {
 
     mks_gc.roots[mks_gc.roots_count++] = val;
     GC_LOG("[GC] push root ptr=%p roots_count=%d\n", (void *)val, mks_gc.roots_count);
+}
+
+void gc_push_root_span(RuntimeValue *values, int count) {
+    if (values == NULL || count <= 0) {
+        return;
+    }
+    if (mks_gc.root_span_count >= MAX_ROOT_SPANS) {
+        runtime_error("GC root span stack overflow");
+    }
+    mks_gc.root_spans[mks_gc.root_span_count] = values;
+    mks_gc.root_span_lengths[mks_gc.root_span_count] = count;
+    mks_gc.root_span_count++;
 }
 
 void gc_pin_root(RuntimeValue *val) {
@@ -402,6 +429,13 @@ void gc_pop_root(void) {
     GC_LOG("[GC] pop root roots_count=%d\n", mks_gc.roots_count);
 }
 
+void gc_pop_root_span(void) {
+    if (mks_gc.root_span_count <= 0) {
+        runtime_error("GC root span stack underflow");
+    }
+    mks_gc.root_span_count--;
+}
+
 void gc_push_env(Environment *env) {
     if (mks_gc.env_roots_count >= MAX_ENV_ROOTS) {
         runtime_error("GC env root stack overflow");
@@ -465,6 +499,10 @@ void *gc_alloc(const size_t size, const GCObjectType type) {
     obj->marked = false;
     obj->size = size;
     obj->next = mks_gc.head;
+    obj->age = 0;
+    obj->heat = 0;
+    obj->flags = 0;
+    obj->external_size = 0;
     mks_gc.head = obj;
 
     mks_gc.allocated_bytes += size;
@@ -493,6 +531,10 @@ static void gc_free_object(GCObject *obj) {
             if (((ManagedPointer *)obj)->kind == PTR_OBJECT_FIELD) {
                 free(((ManagedPointer *)obj)->as.object_field.field);
             }
+            break;
+
+        case GC_OBJ_STRING_BUILDER:
+            free(((ManagedStringBuilder *)obj)->data);
             break;
 
         case GC_OBJ_ENV:
@@ -547,6 +589,15 @@ static void gc_sweep(void) {
                    (*ptr)->size);
 
             (*ptr)->marked = false;
+
+
+            if ((*ptr)->age < UINT8_MAX) (*ptr)->age++;
+            (*ptr)->heat = (uint16_t)((*ptr)->heat / 2);
+            if ((*ptr)->heat >= ORBIT_HOT_THRESHOLD)
+                (*ptr)->flags |= ORBIT_FLAG_HOT;
+            else
+                (*ptr)->flags &= (uint8_t)(~ORBIT_FLAG_HOT);
+
             ptr = &(*ptr)->next;
         }
     }
@@ -568,6 +619,7 @@ void gc_free_all(void) {
     mks_gc.env_roots_count = 0;
     mks_gc.pinned_roots_count = 0;
     mks_gc.pinned_env_roots_count = 0;
+    mks_gc.root_span_count = 0;
 }
 
 void gc_collect(Environment *global_env, Environment *current_env) {
@@ -636,4 +688,101 @@ void gc_dump_objects(void) {
     }
 
     fprintf(stderr, "[GC] object list end\n");
+}
+
+
+
+void orbit_touch_object(GCObject *obj) {
+    if (obj == NULL) return;
+    if (obj->heat < UINT16_MAX) obj->heat++;
+    if (obj->heat >= ORBIT_HOT_THRESHOLD)
+        obj->flags |= ORBIT_FLAG_HOT;
+}
+
+void orbit_touch_value(const RuntimeValue *value) {
+    if (value == NULL) return;
+    switch (value->type) {
+        case VAL_STRING:
+            orbit_touch_object((GCObject *)value->data.managed_string);
+            break;
+        case VAL_ARRAY:
+            orbit_touch_object((GCObject *)value->data.managed_array);
+            break;
+        case VAL_POINTER:
+            orbit_touch_object((GCObject *)value->data.managed_pointer);
+            break;
+        case VAL_OBJECT:
+        case VAL_MODULE:
+            orbit_touch_object((GCObject *)value->data.obj_env);
+            break;
+        case VAL_FUNC:
+            orbit_touch_object((GCObject *)value->data.func.closure_env);
+            break;
+        case VAL_BLUEPRINT:
+            orbit_touch_object((GCObject *)value->data.blueprint.closure_env);
+            break;
+        case VAL_STRING_BUILDER:
+            orbit_touch_object((GCObject *)value->data.string_builder);
+            break;
+        default:
+            break;
+    }
+}
+
+int orbit_object_is_hot(const GCObject *obj) {
+    if (obj == NULL) return 0;
+    return (obj->flags & ORBIT_FLAG_HOT) != 0;
+}
+
+void orbit_dump_hot_objects(void) {
+#define GC_TYPE_COUNT 6
+    int total = 0, hot_count = 0, warm_count = 0, cold_count = 0;
+    GCObject *hottest = NULL;
+    int type_total[GC_TYPE_COUNT] = {0};
+    int type_hot[GC_TYPE_COUNT]   = {0};
+
+    GCObject *obj = mks_gc.head;
+    while (obj != NULL) {
+        total++;
+        if (obj->type < GC_TYPE_COUNT) {
+            type_total[obj->type]++;
+        }
+
+        if (obj->heat >= ORBIT_HOT_THRESHOLD) {
+            hot_count++;
+            if (obj->type < GC_TYPE_COUNT) type_hot[obj->type]++;
+            if (hottest == NULL || obj->heat > hottest->heat) {
+                hottest = obj;
+            }
+        } else if (obj->age > 0 && obj->heat >= ORBIT_WARM_THRESHOLD) {
+            warm_count++;
+        } else {
+            cold_count++;
+        }
+
+        obj = obj->next;
+    }
+
+    fprintf(stderr, "[Orbit GC Hot]\n");
+    fprintf(stderr, "objects: %d\n", total);
+    fprintf(stderr, "hot:  %d\n", hot_count);
+    fprintf(stderr, "warm: %d\n", warm_count);
+    fprintf(stderr, "cold: %d\n", cold_count);
+    if (hottest != NULL) {
+        fprintf(stderr, "hottest: ptr=%p type=%s heat=%u age=%u\n",
+                (void *)hottest,
+                gc_type_name(hottest->type),
+                (unsigned)hottest->heat,
+                (unsigned)hottest->age);
+    }
+    fprintf(stderr, "by type:\n");
+    for (int t = 0; t < GC_TYPE_COUNT; t++) {
+        if (type_total[t] > 0) {
+            fprintf(stderr, "  %-7s objects=%-5d hot=%d\n",
+                    gc_type_name((GCObjectType)t),
+                    type_total[t],
+                    type_hot[t]);
+        }
+    }
+#undef GC_TYPE_COUNT
 }

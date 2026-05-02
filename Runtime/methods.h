@@ -19,5 +19,11 @@ typedef struct {
 
 
 RuntimeValue eval_method_call(const struct ASTNode *node, struct Environment *env);
+RuntimeValue runtime_call_method(RuntimeValue target,
+                                 const char *name,
+                                 unsigned int hash,
+                                 RuntimeValue *args,
+                                 int arg_count,
+                                 struct Environment *env);
 
 #endif //MONKEYKERNELSYNTAX_METHODS_H

@@ -1,0 +1,3 @@
+repeat i in 3 ->
+    Writeln(i);
+<-

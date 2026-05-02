@@ -11,6 +11,7 @@
 #include "errors.h"
 #include "extension.h"
 #include "context.h"
+#include "../VM/vm.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -56,6 +57,7 @@ static RuntimeValue m_array_size(RuntimeValue target, RuntimeValue *args, int ar
     UNUSED(args);
     UNUSED(arg_count);
     UNUSED(env);
+    orbit_touch_object((GCObject *)target.data.managed_array);
     return make_int(target.data.managed_array->count);
 }
 
@@ -80,9 +82,11 @@ static RuntimeValue m_array_inject(RuntimeValue target, RuntimeValue *args, int 
 
         arr->elements = new_elements;
         arr->capacity = new_capacity;
+        arr->gc.external_size = sizeof(RuntimeValue) * (size_t)new_capacity;
     }
 
     arr->elements[arr->count++] = args[0];
+    orbit_touch_object((GCObject *)arr);
     return target;
 }
 
@@ -98,6 +102,7 @@ static void arr_push(ManagedArray *arr, RuntimeValue v) {
         }
         arr->elements = new_elements;
         arr->capacity = new_capacity;
+        arr->gc.external_size = sizeof(RuntimeValue) * (size_t)new_capacity;
     }
     arr->elements[arr->count++] = v;
 }
@@ -164,6 +169,7 @@ static RuntimeValue m_array_offset(RuntimeValue target, RuntimeValue *args, int 
         return make_null();
     }
 
+    orbit_touch_object((GCObject *)arr);
     int idx = (int)runtime_value_as_int(args[0]);
     if (idx >= 0 && idx < arr->count) {
         return arr->elements[idx];
@@ -187,6 +193,7 @@ static RuntimeValue m_array_join(RuntimeValue target, RuntimeValue *args, int ar
         runtime_error("array.join expects 1 string delimiter");
     }
     ManagedArray *arr = target.data.managed_array;
+    orbit_touch_object((GCObject *)arr);
     const char *delim = args[0].data.managed_string->data;
     size_t delim_len = args[0].data.managed_string->len;
 
@@ -230,6 +237,7 @@ static RuntimeValue m_string_upper(RuntimeValue target, RuntimeValue *args, int 
     UNUSED(arg_count);
     UNUSED(env);
 
+    orbit_touch_object((GCObject *)target.data.managed_string);
     const char *src = target.data.managed_string->data;
     const size_t len = target.data.managed_string->len;
 
@@ -251,6 +259,7 @@ static RuntimeValue m_string_lower(RuntimeValue target, RuntimeValue *args, int 
     UNUSED(arg_count);
     UNUSED(env);
 
+    orbit_touch_object((GCObject *)target.data.managed_string);
     const char *src = target.data.managed_string->data;
     const size_t len = target.data.managed_string->len;
 
@@ -272,6 +281,7 @@ static RuntimeValue m_string_len(RuntimeValue target, RuntimeValue *args, int ar
     UNUSED(arg_count);
     UNUSED(env);
 
+    orbit_touch_object((GCObject *)target.data.managed_string);
     return make_int((int64_t)target.data.managed_string->len);
 }
 
@@ -280,6 +290,7 @@ static RuntimeValue m_string_contains(RuntimeValue target, RuntimeValue *args, i
     if (arg_count != 1 || args[0].type != VAL_STRING) {
         runtime_error("contains expects 1 string argument");
     }
+    orbit_touch_object((GCObject *)target.data.managed_string);
     return make_bool(strstr(target.data.managed_string->data,
                             args[0].data.managed_string->data) != NULL);
 }
@@ -307,6 +318,7 @@ static RuntimeValue m_string_ends(RuntimeValue target, RuntimeValue *args, int a
 
 static RuntimeValue m_string_trim(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
     UNUSED(args); UNUSED(arg_count); UNUSED(env);
+    orbit_touch_object((GCObject *)target.data.managed_string);
     const char *s = target.data.managed_string->data;
     size_t len = target.data.managed_string->len;
     size_t start = 0, end = len;
@@ -325,6 +337,7 @@ static RuntimeValue m_string_replace(RuntimeValue target, RuntimeValue *args, in
     if (arg_count != 2 || args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
         runtime_error("replace expects (old, new) strings");
     }
+    orbit_touch_object((GCObject *)target.data.managed_string);
     const char *src = target.data.managed_string->data;
     const char *old = args[0].data.managed_string->data;
     const char *nw  = args[1].data.managed_string->data;
@@ -369,6 +382,7 @@ static RuntimeValue m_string_replace(RuntimeValue target, RuntimeValue *args, in
 static RuntimeValue m_string_split(RuntimeValue target, RuntimeValue *args, int arg_count, Environment *env) {
     UNUSED(env);
     if (arg_count != 1 || args[0].type != VAL_STRING) runtime_error("split expects 1 string delimiter");
+    orbit_touch_object((GCObject *)target.data.managed_string);
     const char *src = target.data.managed_string->data;
     const char *delim = args[0].data.managed_string->data;
     size_t len_delim = args[0].data.managed_string->len;
@@ -440,8 +454,23 @@ RuntimeValue eval_method_call(const ASTNode *node, Environment *env) {
         gc_push_root_if_needed(&args[i]);
     }
 
-    unsigned int hash = node->data.method_call.method_hash;
-    const char *name = node->data.method_call.method_name;
+    RuntimeValue result = runtime_call_method(target,
+                                              node->data.method_call.method_name,
+                                              node->data.method_call.method_hash,
+                                              args,
+                                              arg_count,
+                                              env);
+
+    gc_restore_stack(gc_snap);
+    return result;
+}
+
+RuntimeValue runtime_call_method(RuntimeValue target,
+                                 const char *name,
+                                 unsigned int hash,
+                                 RuntimeValue *args,
+                                 int arg_count,
+                                 Environment *env) {
     RuntimeValue result = make_null();
     int found = 0;
 
@@ -455,9 +484,13 @@ RuntimeValue eval_method_call(const ASTNode *node, Environment *env) {
             break;
 
         case VAL_OBJECT:
-        case VAL_MODULE:
-            result = handle_object_method(target, node, args, arg_count, env, &found);
+        case VAL_MODULE: {
+            ASTNode fake = {0};
+            fake.data.method_call.method_name = (char *)name;
+            fake.data.method_call.method_hash = hash;
+            result = handle_object_method(target, &fake, args, arg_count, env, &found);
             break;
+        }
 
         default:
             result = make_null();
@@ -476,7 +509,6 @@ RuntimeValue eval_method_call(const ASTNode *node, Environment *env) {
         runtime_error("Method '%s' not found", name);
     }
 
-    gc_restore_stack(gc_snap);
     return result;
 }
 
@@ -505,6 +537,18 @@ static RuntimeValue handle_object_method(
 
     if (member.type == VAL_FUNC) {
         ASTNode *decl = member.data.func.node;
+        const int param_count = decl->data.func_decl.param_count;
+        if (arg_count != param_count) {
+            runtime_error("Method '%s' expects %d arguments, got %d",
+                          node->data.method_call.method_name,
+                          param_count,
+                          arg_count);
+        }
+        if (vm_has_compiled_function(decl)) {
+            const RuntimeValue *self_value = target.type == VAL_OBJECT ? &target : NULL;
+            return vm_call_function_value(member, args, arg_count, self_value);
+        }
+
         Environment *parent_env = target.type == VAL_MODULE
             ? member.data.func.closure_env
             : target.data.obj_env;
@@ -513,15 +557,6 @@ static RuntimeValue handle_object_method(
 
         if (target.type == VAL_OBJECT) {
             env_set(local_env, "self", target);
-        }
-
-        const int param_count = decl->data.func_decl.param_count;
-        if (arg_count != param_count) {
-            gc_pop_env();
-            runtime_error("Method '%s' expects %d arguments, got %d",
-                          node->data.method_call.method_name,
-                          param_count,
-                          arg_count);
         }
 
         for (int i = 0; i < param_count; i++) {

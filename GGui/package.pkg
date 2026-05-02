@@ -1,0 +1,4 @@
+package "ggui";
+version "0.1.0";
+lib "src/lib.mks";
+main "examples/demo.mks";

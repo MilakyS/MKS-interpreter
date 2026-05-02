@@ -1,0 +1,8 @@
+fnc twice(n) ->
+    return n * 2;
+<-
+
+fnc main() ->
+    var value =: twice(6);
+    Writeln("main", value);
+<-

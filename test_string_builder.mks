@@ -1,0 +1,29 @@
+using native.string_builder as sb;
+
+var b =: sb.builder();
+sb.append(b, "hello");
+sb.append(b, " ");
+sb.append(b, "world");
+Writeln(sb.to_string(b));
+
+var b2 =: sb.builder();
+sb.append(b2, "line1");
+sb.append_line(b2, "");
+sb.append(b2, "line2");
+Writeln(sb.to_string(b2));
+
+var b3 =: sb.builder();
+sb.append(b3, "count: ");
+sb.append(b3, 42);
+Writeln(sb.to_string(b3));
+
+var b4 =: sb.builder();
+sb.append(b4, "temp");
+sb.clear(b4);
+sb.append(b4, "cleared");
+Writeln(sb.to_string(b4));
+
+var b5 =: sb.builder();
+sb.append(b5, "test");
+Writeln("len: " + sb.len(b5));
+Writeln("cap: " + sb.capacity(b5));

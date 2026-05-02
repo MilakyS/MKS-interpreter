@@ -1,0 +1,13 @@
+fnc sum_to(n) ->
+    var i =: 0;
+    var sum =: 0;
+
+    while (i < n) ->
+        sum =: sum + i;
+        i =: i + 1;
+    <-
+
+    return sum;
+<-
+
+Writeln(sum_to(1000000));

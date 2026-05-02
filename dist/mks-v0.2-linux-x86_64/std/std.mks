@@ -1,0 +1,19 @@
+using "std/math" as math;
+using "std/time" as time;
+using "std/fs" as fs;
+using "std/process" as process;
+using "std/path" as path;
+using "std/watch" as watch;
+using "std/json" as json;
+using "std/string" as string;
+using "std/array" as array;
+
+export var math =: math;
+export var time =: time;
+export var fs =: fs;
+export var process =: process;
+export var path =: path;
+export var watch =: watch;
+export var json =: json;
+export var string =: string;
+export var array =: array;

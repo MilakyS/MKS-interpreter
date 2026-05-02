@@ -1,0 +1,7 @@
+using std.process as process;
+
+var code =: process.exec("python3", ["-c", "print(123)"]);
+Writeln("exit: ", code);
+
+var sh =: process.shell("echo hello");
+Writeln("shell exit: ", sh);

@@ -1,0 +1,4 @@
+Writeln((1 + 2) * 3);
+Writeln(8 / 2);
+Writeln(7 >= 7);
+Writeln("vm" + " ok");

@@ -1,0 +1,9 @@
+watch value;
+on change value ->
+    Writeln("watch fired", value);
+<-
+
+var value =: 1;
+Writeln("before", value);
+value =: 5;
+Writeln("after", value);

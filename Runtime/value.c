@@ -6,6 +6,7 @@
 
 #include "../env/env.h"
 #include "../Parser/AST.h"
+#include "../Utils/hash.h"
 
 static char *mks_strdup(const char *src) {
     if (src == NULL) {
@@ -27,6 +28,7 @@ static ManagedString *alloc_managed_string(void) {
     ManagedString *str = (ManagedString *)gc_alloc(sizeof(ManagedString), GC_OBJ_STRING);
     str->data = NULL;
     str->len = 0;
+    str->hash = 0;
     return str;
 }
 
@@ -131,11 +133,15 @@ RuntimeValue make_string_owned(char *str, size_t len) {
     if (str == NULL) {
         v.data.managed_string->data = mks_strdup("");
         v.data.managed_string->len = 0;
+        v.data.managed_string->hash = get_hash(v.data.managed_string->data);
+        v.data.managed_string->gc.external_size = 1;
         return v;
     }
 
     v.data.managed_string->data = str;
     v.data.managed_string->len = len;
+    v.data.managed_string->hash = get_hash(v.data.managed_string->data);
+    v.data.managed_string->gc.external_size = len + 1;
     return v;
 }
 
@@ -149,6 +155,8 @@ RuntimeValue make_string_len(const char *str, size_t len) {
     if (str == NULL) {
         v.data.managed_string->data = mks_strdup("");
         v.data.managed_string->len = 0;
+        v.data.managed_string->hash = get_hash(v.data.managed_string->data);
+        v.data.managed_string->gc.external_size = 1;
         return v;
     }
 
@@ -163,6 +171,8 @@ RuntimeValue make_string_len(const char *str, size_t len) {
 
     v.data.managed_string->data = copy;
     v.data.managed_string->len = len;
+    v.data.managed_string->hash = get_hash(v.data.managed_string->data);
+    v.data.managed_string->gc.external_size = len + 1;
     return v;
 }
 
@@ -184,6 +194,7 @@ RuntimeValue make_string(const char *str) {
     if (str == NULL) {
         v.data.managed_string->data = mks_strdup("");
         v.data.managed_string->len = 0;
+        v.data.managed_string->gc.external_size = 1;
         return v;
     }
 
@@ -230,6 +241,8 @@ RuntimeValue make_string(const char *str) {
     processed[p_idx] = '\0';
     v.data.managed_string->data = processed;
     v.data.managed_string->len = p_idx;
+    v.data.managed_string->hash = get_hash(v.data.managed_string->data);
+    v.data.managed_string->gc.external_size = p_idx + 1;
 
     return v;
 }
@@ -255,6 +268,7 @@ RuntimeValue make_array(int initial_capacity) {
         exit(1);
     }
 
+    v.data.managed_array->gc.external_size = sizeof(RuntimeValue) * (size_t)initial_capacity;
     return v;
 }
 
@@ -331,4 +345,73 @@ RuntimeValue make_continue(void) {
     v.original_type = VAL_CONTINUE;
     v.data.int_value = 0;
     return v;
+}
+
+RuntimeValue sb_make(void) {
+    RuntimeValue v;
+    v.type = VAL_STRING_BUILDER;
+    v.original_type = VAL_STRING_BUILDER;
+
+    v.data.string_builder = (ManagedStringBuilder *)gc_alloc(sizeof(ManagedStringBuilder), GC_OBJ_STRING_BUILDER);
+    v.data.string_builder->capacity = 256;
+    v.data.string_builder->len = 0;
+    v.data.string_builder->data = (char *)malloc(256);
+
+    if (v.data.string_builder->data == NULL) {
+        fprintf(stderr, "[MKS Builder Error] Out of memory while creating string builder\n");
+        exit(1);
+    }
+
+    v.data.string_builder->gc.external_size = 256;
+    return v;
+}
+
+void sb_append_string(RuntimeValue *builder, const char *str, size_t len) {
+    if (builder->type != VAL_STRING_BUILDER) {
+        return;
+    }
+
+    ManagedStringBuilder *sb = builder->data.string_builder;
+    size_t needed = sb->len + len;
+
+    if (needed > sb->capacity) {
+        size_t new_cap = sb->capacity * 2;
+        while (new_cap < needed) {
+            new_cap *= 2;
+        }
+        char *new_data = (char *)realloc(sb->data, new_cap);
+        if (new_data == NULL) {
+            fprintf(stderr, "[MKS Builder Error] Out of memory while appending to builder\n");
+            exit(1);
+        }
+        sb->data = new_data;
+        sb->capacity = new_cap;
+        sb->gc.external_size = new_cap;
+    }
+
+    memcpy(sb->data + sb->len, str, len);
+    sb->len += len;
+}
+
+void sb_append_value(RuntimeValue *builder, const RuntimeValue *val) {
+    if (val->type == VAL_STRING) {
+        ManagedString *s = val->data.managed_string;
+        sb_append_string(builder, s->data, s->len);
+    }
+}
+
+RuntimeValue sb_to_string(const RuntimeValue *builder) {
+    if (builder->type != VAL_STRING_BUILDER) {
+        return make_string("");
+    }
+
+    const ManagedStringBuilder *sb = builder->data.string_builder;
+    char *result = (char *)malloc(sb->len + 1);
+    if (result == NULL) {
+        fprintf(stderr, "[MKS Builder Error] Out of memory while finalizing string\n");
+        exit(1);
+    }
+    memcpy(result, sb->data, sb->len);
+    result[sb->len] = '\0';
+    return make_string_owned(result, sb->len);
 }

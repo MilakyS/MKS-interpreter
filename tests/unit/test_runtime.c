@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +17,7 @@
 #include "../../Runtime/operators.h"
 #include "../../Runtime/runner.h"
 #include "../../Runtime/value.h"
+#include "../../VM/vm.h"
 #include "../../Utils/hash.h"
 
 #ifndef PATH_MAX
@@ -73,6 +76,36 @@ static ASTNode *parse_program_source(const char *source) {
     Parser parser;
     parser_init(&parser, &lexer);
     return parser_parse_program(&parser);
+}
+
+static char *dump_program_text(const Chunk *chunk) {
+    FILE *dump = tmpfile();
+    if (dump == NULL) {
+        return NULL;
+    }
+
+    vm_dump_program(chunk, dump);
+    if (fseek(dump, 0, SEEK_END) != 0) {
+        fclose(dump);
+        return NULL;
+    }
+
+    long dump_size = ftell(dump);
+    if (dump_size < 0 || fseek(dump, 0, SEEK_SET) != 0) {
+        fclose(dump);
+        return NULL;
+    }
+
+    char *buffer = (char *)malloc((size_t)dump_size + 1);
+    if (buffer == NULL) {
+        fclose(dump);
+        return NULL;
+    }
+
+    size_t read_count = fread(buffer, 1, (size_t)dump_size, dump);
+    buffer[read_count] = '\0';
+    fclose(dump);
+    return buffer;
 }
 
 static void test_lexer_distinguishes_int_and_float(void) {
@@ -199,6 +232,654 @@ static void test_runner_can_run_source_after_error_in_new_context(void) {
     mks_context_init(&good_ctx, 1024 * 1024);
     ASSERT_EQ_INT(0, mks_run_source(&good_ctx, "<good>", "var x =: 1 + 2;", 0, 0));
     mks_context_dispose(&good_ctx);
+}
+
+static void test_vm_repeat_hidden_counters_use_local_slots_inside_function(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    const char *source =
+        "fnc demo() ->\n"
+        "    repeat 3 ->\n"
+        "    <-\n"
+        "<-\n";
+    ASTNode *program = parse_program_source(source);
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+
+    FILE *dump = tmpfile();
+    ASSERT_TRUE(dump != NULL);
+    vm_dump_program(&chunk, dump);
+    ASSERT_EQ_INT(0, fseek(dump, 0, SEEK_END));
+    long dump_size = ftell(dump);
+    ASSERT_TRUE(dump_size >= 0);
+    ASSERT_EQ_INT(0, fseek(dump, 0, SEEK_SET));
+
+    char *buffer = (char *)malloc((size_t)dump_size + 1);
+    ASSERT_TRUE(buffer != NULL);
+    size_t read_count = fread(buffer, 1, (size_t)dump_size, dump);
+    buffer[read_count] = '\0';
+
+    ASSERT_TRUE(strstr(buffer, "== demo ==") != NULL);
+    ASSERT_TRUE(strstr(buffer, "OP_DEFINE_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(buffer, "OP_GET_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(buffer, "OP_SET_LOCAL") != NULL);
+
+    const char *demo_section = strstr(buffer, "== demo ==");
+    ASSERT_TRUE(demo_section != NULL);
+    ASSERT_TRUE(strstr(demo_section, "OP_GET_NAME") == NULL);
+    ASSERT_TRUE(strstr(demo_section, "OP_SET_NAME") == NULL);
+
+    free(buffer);
+    fclose(dump);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_repeat_root_chunk_keeps_env_path(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASTNode *program = parse_program_source("repeat 3 -> <-");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+
+    FILE *dump = tmpfile();
+    ASSERT_TRUE(dump != NULL);
+    vm_dump_program(&chunk, dump);
+    ASSERT_EQ_INT(0, fseek(dump, 0, SEEK_END));
+    long dump_size = ftell(dump);
+    ASSERT_TRUE(dump_size >= 0);
+    ASSERT_EQ_INT(0, fseek(dump, 0, SEEK_SET));
+
+    char *buffer = (char *)malloc((size_t)dump_size + 1);
+    ASSERT_TRUE(buffer != NULL);
+    size_t read_count = fread(buffer, 1, (size_t)dump_size, dump);
+    buffer[read_count] = '\0';
+
+    const char *program_section = strstr(buffer, "== <program> ==");
+    ASSERT_TRUE(program_section != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_DEFINE_LOCAL") == NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_GET_LOCAL") == NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_SET_LOCAL") == NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_GET_NAME") != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_SET_NAME") != NULL);
+
+    free(buffer);
+    fclose(dump);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_function_local_var_uses_local_slots(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASTNode *program = parse_program_source(
+        "fnc main() ->\n"
+        "    var x =: 0;\n"
+        "    x =: x + 1;\n"
+        "    Writeln(x);\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *main_section = strstr(buffer, "== main ==");
+    ASSERT_TRUE(main_section != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_DEFINE_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_GET_LOCAL") != NULL || strstr(main_section, "OP_INC_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_SET_LOCAL") != NULL || strstr(main_section, "OP_INC_LOCAL") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_function_params_use_local_slots_when_safe(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASTNode *program = parse_program_source(
+        "fnc add(x, y) ->\n"
+        "    return x + y;\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *add_section = strstr(buffer, "== add ==");
+    ASSERT_TRUE(add_section != NULL);
+    ASSERT_TRUE(strstr(add_section, "OP_GET_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(add_section, "OP_GET_NAME") == NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_root_script_safe_vars_use_local_slots(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASTNode *program = parse_program_source(
+        "var x =: 0;\n"
+        "for (var i =: 0; i < 4; i =: i + 1) ->\n"
+        "    x =: x + 1;\n"
+        "<-\n"
+        "Writeln(x);\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_script_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *program_section = strstr(buffer, "== <program> ==");
+    ASSERT_TRUE(program_section != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_DEFINE_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_GET_LOCAL") != NULL || strstr(program_section, "OP_INC_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_SET_LOCAL") != NULL || strstr(program_section, "OP_INC_LOCAL") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_safe_import_alias_uses_local_cache(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASTNode *program = parse_program_source(
+        "using std.fs as fs;\n"
+        "fnc main() ->\n"
+        "    return fs.read(\"missing.txt\");\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *main_section = strstr(buffer, "== main ==");
+    ASSERT_TRUE(main_section != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_GET_NAME 0\n0003  OP_DEFINE_LOCAL") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_mutable_import_alias_stays_env_backed(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASTNode *program = parse_program_source(
+        "using std.fs as fs;\n"
+        "fnc main() ->\n"
+        "    return fs.read(\"missing.txt\");\n"
+        "<-\n"
+        "fnc touch() ->\n"
+        "    fs =: 1;\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *main_section = strstr(buffer, "== main ==");
+    ASSERT_TRUE(main_section != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_GET_NAME 0\n0003  OP_DEFINE_LOCAL") == NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_GET_NAME 0") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_captured_param_stays_env_backed(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<closure-param-boundary>",
+                                    "fnc outer(x) ->\n"
+                                    "    fnc inner() ->\n"
+                                    "        return x + 1;\n"
+                                    "    <-\n"
+                                    "    return inner();\n"
+                                    "<-\n"
+                                    "expect(outer(41) ?= 42);\n",
+                                    0,
+                                    0));
+
+    ASTNode *program = parse_program_source(
+        "fnc outer(x) ->\n"
+        "    fnc inner() ->\n"
+        "        return x + 1;\n"
+        "    <-\n"
+        "    return inner();\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *inner_section = strstr(buffer, "== inner ==");
+    ASSERT_TRUE(inner_section != NULL);
+    ASSERT_TRUE(strstr(inner_section, "OP_GET_NAME") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_address_of_param_stays_env_backed(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<address-of-param-boundary>",
+                                    "fnc mutate(x) ->\n"
+                                    "    var p =: &x;\n"
+                                    "    *p =: 9;\n"
+                                    "    return x;\n"
+                                    "<-\n"
+                                    "expect(mutate(1) ?= 9);\n",
+                                    0,
+                                    0));
+
+    ASTNode *program = parse_program_source(
+        "fnc mutate(x) ->\n"
+        "    var p =: &x;\n"
+        "    return x;\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *mutate_section = strstr(buffer, "== mutate ==");
+    ASSERT_TRUE(mutate_section != NULL);
+    ASSERT_TRUE(strstr(mutate_section, "OP_ADDRESS_OF_VAR") != NULL);
+    ASSERT_TRUE(strstr(mutate_section, "OP_GET_NAME") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_method_self_uses_local_slot_when_safe(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASTNode *program = parse_program_source(
+        "entity Box() ->\n"
+        "    method read() ->\n"
+        "        return self.value;\n"
+        "    <-\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *read_section = strstr(buffer, "== read ==");
+    ASSERT_TRUE(read_section != NULL);
+    ASSERT_TRUE(strstr(read_section, "OP_GET_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(read_section, "OP_GET_NAME") == NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_captured_self_stays_env_backed(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<captured-self-boundary>",
+                                    "entity Box() ->\n"
+                                    "    init ->\n"
+                                    "        self.value =: 41;\n"
+                                    "    <-\n"
+                                    "    method read() ->\n"
+                                    "        fnc inner() ->\n"
+                                    "            return self.value + 1;\n"
+                                    "        <-\n"
+                                    "        return inner();\n"
+                                    "    <-\n"
+                                    "<-\n"
+                                    "expect(Box().read() ?= 42);\n",
+                                    0,
+                                    0));
+
+    ASTNode *program = parse_program_source(
+        "entity Box() ->\n"
+        "    method read() ->\n"
+        "        fnc inner() ->\n"
+        "            return self.value;\n"
+        "        <-\n"
+        "        return inner();\n"
+        "    <-\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *read_section = strstr(buffer, "== read ==");
+    ASSERT_TRUE(read_section != NULL);
+    ASSERT_TRUE(strstr(read_section, "OP_GET_NAME") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_closure_capture_keeps_var_env_backed(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<closure-local-boundary>",
+                                    "fnc outer() ->\n"
+                                    "    var x =: 41;\n"
+                                    "    fnc inner() ->\n"
+                                    "        return x + 1;\n"
+                                    "    <-\n"
+                                    "    return inner();\n"
+                                    "<-\n"
+                                    "expect(outer() ?= 42);\n",
+                                    0,
+                                    0));
+
+    ASTNode *program = parse_program_source(
+        "fnc outer() ->\n"
+        "    var x =: 41;\n"
+        "    fnc inner() ->\n"
+        "        return x + 1;\n"
+        "    <-\n"
+        "    return inner();\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *outer_section = strstr(buffer, "== outer ==");
+    ASSERT_TRUE(outer_section != NULL);
+    ASSERT_TRUE(strstr(outer_section, "OP_DEFINE_LOCAL") == NULL);
+    ASSERT_TRUE(strstr(outer_section, "OP_DEFINE_NAME") != NULL);
+    ASSERT_TRUE(strstr(outer_section, "OP_GET_NAME") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_address_of_keeps_var_env_backed(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<address-of-local-boundary>",
+                                    "fnc main() ->\n"
+                                    "    var x =: 1;\n"
+                                    "    var p =: &x;\n"
+                                    "    *p =: 9;\n"
+                                    "    expect(x ?= 9);\n"
+                                    "<-\n"
+                                    "main();\n",
+                                    0,
+                                    0));
+
+    ASTNode *program = parse_program_source(
+        "fnc main() ->\n"
+        "    var x =: 1;\n"
+        "    var p =: &x;\n"
+        "    *p =: 9;\n"
+        "    Writeln(x);\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *main_section = strstr(buffer, "== main ==");
+    ASSERT_TRUE(main_section != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_ADDRESS_OF_VAR") != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_DEFINE_NAME") != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_GET_NAME") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_watch_keeps_var_env_backed(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<watch-local-boundary>",
+                                    "fnc main() ->\n"
+                                    "    var x =: 1;\n"
+                                    "    var marker =: 0;\n"
+                                    "    watch x;\n"
+                                    "    on change x ->\n"
+                                    "        marker =: x;\n"
+                                    "    <-\n"
+                                    "    x =: 2;\n"
+                                    "    expect(marker ?= 2);\n"
+                                    "<-\n"
+                                    "main();\n",
+                                    0,
+                                    0));
+
+    ASTNode *program = parse_program_source(
+        "fnc main() ->\n"
+        "    var x =: 1;\n"
+        "    watch x;\n"
+        "    on change x ->\n"
+        "        Writeln(x);\n"
+        "    <-\n"
+        "    x =: 2;\n"
+        "<-\n");
+    ASSERT_TRUE(program != NULL);
+
+    Chunk chunk;
+    ASSERT_TRUE(compile_program(program, &chunk));
+    char *buffer = dump_program_text(&chunk);
+    ASSERT_TRUE(buffer != NULL);
+
+    const char *main_section = strstr(buffer, "== main ==");
+    ASSERT_TRUE(main_section != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_WATCH") != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_WATCH_HANDLER") != NULL);
+    ASSERT_TRUE(strstr(main_section, "OP_SET_NAME") != NULL);
+
+    free(buffer);
+    chunk_free(&chunk);
+    delete_ast_node(program);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_repeat_deep_function_stack_does_not_overflow_root_spans(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    enum { depth = 40 };
+    char source[8192];
+    size_t offset = 0;
+    source[0] = '\0';
+
+    for (int i = 0; i < depth; i++) {
+        offset += (size_t)snprintf(source + offset,
+                                   sizeof(source) - offset,
+                                   "fnc f%d() ->\n"
+                                   "    repeat 1 -> <-\n",
+                                   i);
+        if (i + 1 < depth) {
+            offset += (size_t)snprintf(source + offset,
+                                       sizeof(source) - offset,
+                                       "    return f%d();\n",
+                                       i + 1);
+        } else {
+            offset += (size_t)snprintf(source + offset,
+                                       sizeof(source) - offset,
+                                       "    return 1;\n");
+        }
+        offset += (size_t)snprintf(source + offset, sizeof(source) - offset, "<-\n");
+    }
+
+    offset += (size_t)snprintf(source + offset,
+                               sizeof(source) - offset,
+                               "fnc main() ->\n"
+                               "    return f0();\n"
+                               "<-\n");
+    ASSERT_TRUE(offset < sizeof(source));
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx, "<deep-repeat-stack>", source, 1, 0));
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_method_calls_with_repeat_do_not_leak_root_spans(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<repeat-method-gc>",
+                                    "entity Box() ->\n"
+                                    "    method tick() ->\n"
+                                    "        repeat 1 -> <-\n"
+                                    "        return 7;\n"
+                                    "    <-\n"
+                                    "<-\n"
+                                    "var box =: Box();\n"
+                                    "var i =: 0;\n"
+                                    "while (i < 400) ->\n"
+                                    "    expect(box.tick() ?= 7);\n"
+                                    "    i =: i + 1;\n"
+                                    "<-\n",
+                                    0,
+                                    0));
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_profiled_entity_methods_do_not_fallback_to_hot_ast_eval(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<vm-profile-methods>",
+                                    "entity Box() ->\n"
+                                    "    method tick(x) ->\n"
+                                    "        return x + 1;\n"
+                                    "    <-\n"
+                                    "<-\n"
+                                    "fnc main() ->\n"
+                                    "    var box =: Box();\n"
+                                    "    var i =: 0;\n"
+                                    "    var sum =: 0;\n"
+                                    "    while (i < 2000) ->\n"
+                                    "        sum =: sum + box.tick(i);\n"
+                                    "        i =: i + 1;\n"
+                                    "    <-\n"
+                                    "    expect(sum > 0);\n"
+                                    "<-\n",
+                                    1,
+                                    1));
+
+    ASSERT_TRUE(ctx.profiler_counts[AST_IDENTIFIER] < 1000);
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_profile_report_includes_vm_opcode_summary(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<vm-profile-report>",
+                                    "fnc main() ->\n"
+                                    "    var x =: 0;\n"
+                                    "    while (x < 4) ->\n"
+                                    "        x =: x + 1;\n"
+                                    "    <-\n"
+                                    "    return x;\n"
+                                    "<-\n",
+                                    1,
+                                    1));
+    ASSERT_TRUE(ctx.profiler_vm_opcode_counts[OP_GET_LOCAL] > 0);
+    ASSERT_TRUE(ctx.profiler_vm_opcode_counts[OP_SET_LOCAL] > 0 || ctx.profiler_vm_opcode_counts[OP_INC_LOCAL] > 0);
+
+    mks_context_dispose(&ctx);
+}
+
+static void test_vm_profiled_entity_init_does_not_fallback_to_hot_ast_eval(void) {
+    MKSContext ctx;
+    mks_context_init(&ctx, 1024 * 1024);
+
+    ASSERT_EQ_INT(0, mks_run_source(&ctx,
+                                    "<vm-profile-entity-init>",
+                                    "entity Box(seed) ->\n"
+                                    "    init ->\n"
+                                    "        self.value =: seed;\n"
+                                    "        var i =: 0;\n"
+                                    "        while (i < 200) ->\n"
+                                    "            self.value =: self.value + 1;\n"
+                                    "            i =: i + 1;\n"
+                                    "        <-\n"
+                                    "    <-\n"
+                                    "<-\n"
+                                    "fnc main() ->\n"
+                                    "    var box =: Box(1);\n"
+                                    "    expect(box.value ?= 201);\n"
+                                    "<-\n",
+                                    1,
+                                    1));
+
+    ASSERT_TRUE(ctx.profiler_counts[AST_IDENTIFIER] < 1000);
+    mks_context_dispose(&ctx);
 }
 
 static void write_test_file(const char *path, const char *source) {
@@ -1213,6 +1894,25 @@ int main(void) {
     run_test("native function receives context", test_native_function_receives_context);
     run_test("runner returns status on syntax error", test_runner_returns_status_on_syntax_error);
     run_test("runner can run source after error in new context", test_runner_can_run_source_after_error_in_new_context);
+    run_test("vm repeat hidden counters use local slots inside function", test_vm_repeat_hidden_counters_use_local_slots_inside_function);
+    run_test("vm repeat root chunk keeps env path", test_vm_repeat_root_chunk_keeps_env_path);
+    run_test("vm function local var uses local slots", test_vm_function_local_var_uses_local_slots);
+    run_test("vm function params use local slots when safe", test_vm_function_params_use_local_slots_when_safe);
+    run_test("vm root script safe vars use local slots", test_vm_root_script_safe_vars_use_local_slots);
+    run_test("vm safe import alias uses local cache", test_vm_safe_import_alias_uses_local_cache);
+    run_test("vm mutable import alias stays env backed", test_vm_mutable_import_alias_stays_env_backed);
+    run_test("vm captured param stays env backed", test_vm_captured_param_stays_env_backed);
+    run_test("vm address of param stays env backed", test_vm_address_of_param_stays_env_backed);
+    run_test("vm method self uses local slot when safe", test_vm_method_self_uses_local_slot_when_safe);
+    run_test("vm captured self stays env backed", test_vm_captured_self_stays_env_backed);
+    run_test("vm closure capture keeps var env backed", test_vm_closure_capture_keeps_var_env_backed);
+    run_test("vm address of keeps var env backed", test_vm_address_of_keeps_var_env_backed);
+    run_test("vm watch keeps var env backed", test_vm_watch_keeps_var_env_backed);
+    run_test("vm repeat deep function stack does not overflow root spans", test_vm_repeat_deep_function_stack_does_not_overflow_root_spans);
+    run_test("vm method calls with repeat do not leak root spans", test_vm_method_calls_with_repeat_do_not_leak_root_spans);
+    run_test("vm profiled entity methods do not fallback to hot ast eval", test_vm_profiled_entity_methods_do_not_fallback_to_hot_ast_eval);
+    run_test("vm profile report includes vm opcode summary", test_vm_profile_report_includes_vm_opcode_summary);
+    run_test("vm profiled entity init does not fallback to hot ast eval", test_vm_profiled_entity_init_does_not_fallback_to_hot_ast_eval);
     run_test("module namespace export access", test_module_namespace_export_access);
     run_test("module skips top-level executable statement", test_module_skips_top_level_executable_statement);
     run_test("module private symbol is not exported", test_module_private_symbol_is_not_exported);

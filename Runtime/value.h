@@ -19,6 +19,7 @@ typedef struct {
     GCObject gc;
     char *data;
     size_t len;
+    unsigned int hash;
 } ManagedString;
 
 typedef struct {
@@ -54,6 +55,13 @@ typedef struct ManagedPointer {
     } as;
 } ManagedPointer;
 
+typedef struct {
+    GCObject gc;
+    char *data;
+    size_t len;
+    size_t capacity;
+} ManagedStringBuilder;
+
 enum ValueType {
     VAL_INT,
     VAL_FLOAT,
@@ -70,6 +78,7 @@ enum ValueType {
     VAL_MODULE,
     VAL_BLUEPRINT,
     VAL_NULL,
+    VAL_STRING_BUILDER,
 };
 
 typedef RuntimeValue (*NativeFn)(struct MKSContext *ctx, const RuntimeValue *args, int arg_count);
@@ -94,6 +103,7 @@ struct RuntimeValue {
         ManagedString *managed_string;
         ManagedArray *managed_array;
         ManagedPointer *managed_pointer;
+        ManagedStringBuilder *string_builder;
 
         struct {
             struct ASTNode *node;
@@ -131,5 +141,10 @@ RuntimeValue make_module(struct Environment *env);
 RuntimeValue make_blueprint(const struct ASTNode *entity_node, struct Environment *closure_env);
 RuntimeValue make_break(void);
 RuntimeValue make_continue(void);
+
+RuntimeValue sb_make(void);
+void sb_append_string(RuntimeValue *builder, const char *str, size_t len);
+void sb_append_value(RuntimeValue *builder, const RuntimeValue *val);
+RuntimeValue sb_to_string(const RuntimeValue *builder);
 
 #endif

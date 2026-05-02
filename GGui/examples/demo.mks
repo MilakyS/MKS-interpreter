@@ -1,0 +1,170 @@
+using ggui as gui;
+using std.fs as fs;
+
+fnc join_path(dir, name) ->
+    if (dir ?= "" || dir ?= ".") -> return name; <-
+    return dir + "/" + name;
+<-
+
+fnc load_items(dir) ->
+    var items =: fs.list(dir);
+    if (items ?= null) -> return ["<cannot read directory>"]; <-
+    if (items.len() ?= 0) -> return ["<empty>"]; <-
+    return items;
+<-
+
+fnc item_name(items, selected) ->
+    if (items.len() ?= 0) -> return "<none>"; <-
+    if (selected < 0) -> return "<none>"; <-
+    if (selected >= items.len()) -> return "<none>"; <-
+    return items[selected];
+<-
+
+fnc item_path(dir, items, selected) ->
+    var name =: item_name(items, selected);
+    if (name ?= "<empty>" || name ?= "<cannot read directory>" || name ?= "<none>") -> return dir; <-
+    return join_path(dir, name);
+<-
+
+fnc clamp_selected(selected, items) ->
+    if (items.len() <= 0) -> return 0; <-
+    if (selected < 0) -> return 0; <-
+    if (selected >= items.len()) -> return items.len() - 1; <-
+    return selected;
+<-
+
+fnc draw_app(s, dir, items, selected, modal, last_key, name, path, type, size, is_dir) ->
+    var count =: items.len();
+
+    if (s.w < 48 || s.h < 16) ->
+        s.clear();
+        gui.pane(s, 1, 1, s.w, s.h - 1, " ggui ", true);
+        s.text_clip(3, 5, s.w - 4, "Terminal too small.");
+        s.render();
+        return null;
+    <-
+
+    var desc_bottom =: 6;
+    var main_top =: 7;
+    var footer_top =: s.h - 1;
+    var action_top =: s.h - 4;
+    var main_bottom =: action_top - 2;
+    var main_h =: main_bottom - main_top + 1;
+
+    var left_w =: gui.clamp(gui.div_floor(s.w - 4, 3), 20, 34);
+    var split_x =: 2 + left_w + 1;
+
+    var right_x =: split_x + 2;
+    var right_w =: s.w - right_x - 1;
+
+    s.clear();
+
+    gui.pane(s, 1, 1, s.w, s.h - 1, " ggui ", true);
+
+    s.text_clip(3, 2, s.w - 4, "GGui FS TUI");
+    s.text_clip(3, 4, s.w - 4, "dir: " + dir);
+
+    gui.pane(s, 2, main_top, left_w + 1, main_h + 2, " files ", true);
+    gui.pane(s, split_x + 1, main_top, s.w - split_x, main_h + 2, " details ", false);
+
+    var i =: 0;
+    var max_files =: main_h - 2;
+
+    while (i < max_files && i < items.len()) ->
+        var marker =: "  ";
+        if (i ?= selected) -> marker =: "> "; <-
+        s.text_clip(4, main_top + 1 + i, left_w - 2, marker + items[i]);
+        i =: i + 1;
+    <-
+
+    s.text_clip(right_x + 1, main_top + 2, right_w - 2, "name: " + name);
+    s.text_clip(right_x + 1, main_top + 3, right_w - 2, "type: " + type);
+    s.text_clip(right_x + 1, main_top + 4, right_w - 2, "size: " + size);
+    s.text_clip(right_x + 1, main_top + 6, right_w - 2, "path: " + path);
+
+    gui.pane(s, 2, action_top, s.w - 2, 3, " actions ", false);
+
+    var safe_count =: count;
+    if (safe_count <= 0) -> safe_count =: 1; <-
+
+    s.progress(25, action_top + 1, 20, selected + 1, safe_count);
+
+    if (modal ?= 1) ->
+        s.modal(10, 5, 40, 7, "File");
+        s.text_clip(12, 7, 36, name + " | " + type + " | " + size);
+    <-
+
+    s.render();
+<-
+
+fnc main() ->
+    var dir =: ".";
+    var items =: load_items(dir);
+    var selected =: 0;
+    var modal =: 0;
+    var last_key =: "none";
+
+    var s =: gui.screen();
+
+    gui.begin();
+    defer -> gui.finish(); <-
+
+    var running =: true;
+    var dirty =: true;
+
+    while (running) ->
+        if (dirty) ->
+            selected =: clamp_selected(selected, items);
+
+            var name =: item_name(items, selected);
+            var path =: item_path(dir, items, selected);
+
+            var st =: fs.stat(path);
+
+            var type =: "unavailable";
+            var size =: "n/a";
+            var is_dir =: 0;
+
+            if ((st ?= null) ?= false) ->
+                if (st.is_dir) ->
+                    type =: "directory";
+                    is_dir =: 1;
+                <- else if (st.is_file) ->
+                    type =: "file";
+                <-
+                size =: st.size;
+            <-
+
+            draw_app(s, dir, items, selected, modal, last_key, name, path, type, size, is_dir);
+            dirty =: false;
+        <-
+
+        var key =: gui.poll(100);
+        if (key ?= null) -> continue; <-
+
+        last_key =: key;
+        dirty =: true;
+
+        if (gui.is_quit_key(key)) ->
+            if (modal ?= 1) ->
+                modal =: 0;
+            <- else ->
+                running =: false;
+            <-
+        <- else if (modal ?= 1) ->
+            if (key ?= "enter") -> modal =: 0; <-
+        <- else if (key ?= "up") ->
+            selected =: selected - 1;
+        <- else if (key ?= "down") ->
+            selected =: selected + 1;
+        <- else if (key ?= "enter") ->
+            if (is_dir ?= 1) ->
+                dir =: path;
+                items =: load_items(dir);
+                selected =: 0;
+            <- else ->
+                modal =: 1;
+            <-
+        <-
+    <-
+<-

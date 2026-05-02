@@ -1,0 +1,2 @@
+var matrix =: [[1, 2], [3, 4]];
+Writeln(matrix[1][0]);

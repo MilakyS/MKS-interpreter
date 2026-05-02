@@ -1,0 +1,13 @@
+var kind =: 2;
+
+switch(kind) ->
+    case 1 ->
+        Writeln("one");
+    <-
+    case 2 ->
+        Writeln("two");
+    <-
+    default ->
+        Writeln("other");
+    <-
+<-

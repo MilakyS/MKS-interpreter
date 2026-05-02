@@ -1,0 +1,20 @@
+var nums =: [2, 4, 6];
+var i =: 0;
+var total =: 0;
+
+while(i < 3) ->
+    total =: total + nums[i];
+    i =: i + 1;
+<-
+
+if(total >= 12) ->
+    Writeln("sum ok", total);
+<- else ->
+    Writeln("sum bad", total);
+<-
+
+repeat idx in 3 ->
+    nums[idx] =: nums[idx] + 1;
+<-
+
+Writeln(nums[0], nums[1], nums[2]);

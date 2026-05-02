@@ -1,6 +1,8 @@
 #include "eval.h"
+#include "eval_index.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../Runtime/value.h"
 #include "../env/env.h"
@@ -8,7 +10,6 @@
 
 #include "../Runtime/output.h"
 #include "../Runtime/operators.h"
-#include "../Runtime/indexing.h"
 #include "../Runtime/methods.h"
 #include "../Runtime/functions.h"
 #include "../Runtime/control_flow.h"
@@ -134,7 +135,7 @@ static RuntimeValue eval_export(const ASTNode *node, Environment *env) {
 
 static RuntimeValue eval_break(const ASTNode *node, Environment *env);
 static RuntimeValue eval_continue(const ASTNode *node, Environment *env);
-static RuntimeValue eval_impl(const ASTNode *node, Environment *env);
+static RuntimeValue eval_node(const ASTNode *node, Environment *env);
 static RuntimeValue eval_entity(const ASTNode *node, Environment *env) {
     RuntimeValue bp = make_blueprint(node, env);
     env_set_fast(env, node->data.entity.name, node->data.entity.name_hash, bp);
@@ -468,12 +469,12 @@ RuntimeValue eval(const ASTNode *node, Environment *env) {
     if (ctx->eval_depth > MKS_MAX_EVAL_DEPTH) {
         runtime_error("Recursion depth limit (%d) exceeded", MKS_MAX_EVAL_DEPTH);
     }
-    RuntimeValue out = eval_impl(node, env);
+    RuntimeValue out = eval_node(node, env);
     ctx->eval_depth--;
     return out;
 }
 
-static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
+static RuntimeValue eval_node(const ASTNode *node, Environment *env) {
     if (node == NULL) {
         return make_int(0);
     }
@@ -481,6 +482,7 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
     runtime_set_line(node->line);
     PROFILER_ON_EVAL(node->type);
 
+    /* Central node dispatch for runtime evaluation. */
     switch (node->type) {
         case AST_NUMBER:
             return node->data.number.kind == NUMBER_INT
@@ -673,16 +675,33 @@ static RuntimeValue eval_impl(const ASTNode *node, Environment *env) {
             return eval_export(node, env);
 
         case AST_USING: {
-            module_import(node->data.using_stmt.path,
+            const char *path = node->data.using_stmt.path;
+            bool is_legacy = node->data.using_stmt.is_legacy_path;
+
+            if (is_legacy && path != NULL) {
+                /* Warn about bare imports like "foo" (not "./foo", "file.mks", or "std.foo") */
+                if (path[0] != '.' && path[0] != '/' &&
+                    strncmp(path, "std.", 4) != 0 &&
+                    strncmp(path, "pkg.", 4) != 0 &&
+                    strncmp(path, "native.", 7) != 0 &&
+                    strchr(path, '.') == NULL) { /* No extension, not a file path */
+                    fprintf(stderr, "[MKS Warning] bare import \"%s\" is ambiguous\n", path);
+                    fprintf(stderr, "  Use: std.%s, pkg.%s, or ./%s\n", path, path, path);
+                    fprintf(stderr, "  This will be required in MKS 0.4\n");
+                    fflush(stderr);
+                }
+            }
+
+            module_import(path,
                           node->data.using_stmt.alias,
-                          node->data.using_stmt.is_legacy_path,
+                          is_legacy,
                           node->data.using_stmt.star_import,
                           env);
             return make_null();
         }
 
         default:
-            fprintf(stderr, "[MKS Eval Error] Unknown AST node type: %d\n", node->type);
+            fprintf(stderr, "[MKS Eval Error] Unknown node type: %d\n", node->type);
             exit(1);
     }
 }

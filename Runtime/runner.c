@@ -20,6 +20,7 @@
 #include "module.h"
 #include "operators.h"
 #include "profiler.h"
+#include "../VM/vm.h"
 
 typedef struct {
     char *data;
@@ -48,6 +49,7 @@ static const char *value_type_name(RuntimeValue value) {
         case VAL_MODULE: return "module";
         case VAL_BLUEPRINT: return "blueprint";
         case VAL_NULL: return "null";
+        case VAL_STRING_BUILDER: return "string_builder";
     }
     return "unknown";
 }
@@ -140,6 +142,7 @@ static void append_value_string(StringBuffer *sb, RuntimeValue value) {
         case VAL_BREAK: sb_append(sb, "<Break>"); break;
         case VAL_CONTINUE: sb_append(sb, "<Continue>"); break;
         case VAL_NULL: sb_append(sb, "null"); break;
+        case VAL_STRING_BUILDER: sb_append(sb, "<StringBuilder>"); break;
         case VAL_RETURN: break;
     }
 }
@@ -342,42 +345,22 @@ Environment *mks_create_global_env(MKSContext *ctx) {
     return env;
 }
 
-static void call_entry_main(Environment *env) {
-    RuntimeValue main_val;
-    if (!env_try_get(env, "main", get_hash("main"), &main_val)) {
-        return;
-    }
-
-    if (main_val.type == VAL_FUNC) {
-        const ASTNode *decl = main_val.data.func.node;
-        if (decl->data.func_decl.param_count != 0) {
-            runtime_error("main must take 0 arguments");
-        }
-        Environment *local_env = env_create_child(main_val.data.func.closure_env);
-        gc_push_env(local_env);
-        eval(decl->data.func_decl.body, local_env);
-        gc_pop_env();
-        return;
-    }
-
-    if (main_val.type == VAL_NATIVE_FUNC) {
-        main_val.data.native.fn(mks_context_current(), NULL, 0);
-        return;
-    }
-
-    return;
-}
-
 int mks_run_source(MKSContext *ctx, const char *name, const char *source, const int call_main, const int profile) {
     MKSContext *previous = mks_context_current();
     mks_context_set_current(ctx);
 
     const int was_active = ctx->error_active;
+    const int saved_span_count = ctx->gc.root_span_count;
+    const int saved_roots_count = ctx->gc.roots_count;
+    const int saved_env_roots_count = ctx->gc.env_roots_count;
     if (setjmp(ctx->error_jmp) != 0) {
         const int aborted = ctx->abort_requested;
         const int status = ctx->error_status;
         ctx->abort_requested = 0;
         ctx->error_active = was_active;
+        ctx->gc.root_span_count = saved_span_count;
+        ctx->gc.roots_count = saved_roots_count;
+        ctx->gc.env_roots_count = saved_env_roots_count;
         mks_context_set_current(previous);
         if (aborted) {
             return status;
@@ -404,10 +387,36 @@ int mks_run_source(MKSContext *ctx, const char *name, const char *source, const 
         profiler_enable();
     }
     if (program != NULL) {
-        eval(program, env);
-        if (call_main) {
-            call_entry_main(env);
+        const int use_vm_only = ctx->vm_mode == MKS_VM_FORCE;
+
+        Chunk chunk;
+        chunk_init(&chunk);
+        const int compiled = compile_script_program(program, &chunk);
+
+        if (compiled) {
+            if (ctx->vm_dump_bytecode) {
+                vm_dump_program(&chunk, stderr);
+            }
+
+            VM vm;
+            vm_init(&vm, &chunk, env);
+            (void)vm_run(&vm);
+        } else if (use_vm_only) {
+            chunk_free(&chunk);
+            runtime_error("VM mode forced, but this program uses unsupported syntax");
+        } else {
+            chunk_free(&chunk);
+            runtime_error("VM could not compile program");
         }
+
+        if (call_main) {
+            RuntimeValue main_val;
+            if (env_try_get(env, "main", get_hash("main"), &main_val)) {
+                (void)vm_call_named(&chunk, env, "main", NULL, 0);
+            }
+        }
+
+        chunk_free(&chunk);
     }
     if (profile) {
         profiler_report();

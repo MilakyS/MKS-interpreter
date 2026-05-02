@@ -11,6 +11,7 @@
 #include "../env/env.h"
 
 RuntimeValue eval_binop(const ASTNode *node, Environment *env);
+RuntimeValue runtime_apply_binop(int op, RuntimeValue left, RuntimeValue right);
 int runtime_value_is_truthy(RuntimeValue value);
 int runtime_value_equals(RuntimeValue left, RuntimeValue right);
 

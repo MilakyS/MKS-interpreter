@@ -98,6 +98,9 @@ static void io_fprint_value(FILE *stream, RuntimeValue value) {
         case VAL_NULL:
             fputs("null", stream);
             break;
+        case VAL_STRING_BUILDER:
+            fputs("<StringBuilder>", stream);
+            break;
         case VAL_RETURN:
             break;
     }

@@ -7,6 +7,7 @@
 
 
 RuntimeValue eval_output(const ASTNode *node, struct Environment *env);
+RuntimeValue runtime_write_values(const RuntimeValue *args, int count, bool is_newline);
 
 void print_value(const RuntimeValue *val);
 

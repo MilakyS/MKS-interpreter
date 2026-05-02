@@ -1,0 +1,13 @@
+fnc add(a, b) ->
+    return a + b;
+<-
+
+fnc fact(n) ->
+    if(n <= 1) ->
+        return 1;
+    <-
+    return n * fact(n - 1);
+<-
+
+Writeln(add(2, 3));
+Writeln(fact(5));

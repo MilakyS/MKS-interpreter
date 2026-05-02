@@ -1,0 +1,6 @@
+var obj =: Object();
+obj.name =: "mks";
+obj.count =: 3;
+
+Writeln(obj.name);
+Writeln(obj.count);

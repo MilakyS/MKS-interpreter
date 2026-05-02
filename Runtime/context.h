@@ -22,6 +22,9 @@ typedef struct MKSContext {
     int current_line;
 
     int debug_mode;
+    int vm_mode;
+    int vm_dump_bytecode;
+    void *vm_chunk_registry;
 
     void *module_native_registry;
     void *module_loaded_modules;
@@ -37,6 +40,8 @@ typedef struct MKSContext {
 
     int profiler_enabled;
     unsigned long profiler_counts[64];
+    unsigned long profiler_vm_opcode_counts[64];
+    unsigned long profiler_vm_hot_counts[16];
     struct timespec profiler_start;
 
     uint64_t random_state;

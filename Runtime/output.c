@@ -101,8 +101,26 @@ RuntimeValue eval_output(const ASTNode *node, Environment *env) {
         MKS_GC_ROOTS(output_roots);
         MKS_GC_ROOT(&val);
         print_value(&val);
+        if (i < count - 1) {
+            printf(" ");
+        }
         MKS_GC_ROOTS_END(output_roots);
+    }
 
+    if (is_newline) {
+        printf("\n");
+    }
+
+    return make_int(0);
+}
+
+RuntimeValue runtime_write_values(const RuntimeValue *args, int count, const bool is_newline) {
+    if (args == NULL) {
+        count = 0;
+    }
+
+    for (int i = 0; i < count; i++) {
+        print_value(&args[i]);
         if (i < count - 1) {
             printf(" ");
         }

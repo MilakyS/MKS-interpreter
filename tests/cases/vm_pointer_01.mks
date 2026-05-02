@@ -1,0 +1,15 @@
+var x =: 1;
+var p =: &x;
+*p =: 9;
+Writeln(x);
+
+var arr =: [2, 3];
+var ap =: &arr[1];
+*ap =: 7;
+Writeln(arr[1]);
+
+var obj =: Object();
+obj.name =: "old";
+var fp =: &obj.name;
+*fp =: "new";
+Writeln(obj.name);

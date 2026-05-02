@@ -28,6 +28,8 @@ set(MKS_RUNTIME_SOURCES
 
         Eval/eval.h
         Eval/eval.c
+        Eval/eval_index.h
+        Eval/eval_index.c
 
         Runtime/value.h
         Runtime/value.c
@@ -61,6 +63,8 @@ set(MKS_RUNTIME_SOURCES
 
         Runtime/module.c
         Runtime/module.h
+        Runtime/module_toml.c
+        Runtime/module_toml.h
         Runtime/errors.c
         Runtime/errors.h
         Runtime/context.c
@@ -69,6 +73,16 @@ set(MKS_RUNTIME_SOURCES
         Runtime/runner.h
         Runtime/profiler.c
         Runtime/profiler.h
+        Runtime/pointers.c
+        Runtime/pointers.h
+        VM/vm_compile.c
+        VM/vm_compile_scope.c
+        VM/vm_compile_scope.h
+        VM/vm_peephole.c
+        VM/vm_peephole.h
+        VM/vm_exec.c
+        VM/vm_dump.c
+        VM/vm.h
 
         std/watch.c
         std/watch.h
@@ -94,6 +108,11 @@ set(MKS_RUNTIME_SOURCES
 
         GC/gc.c
         GC/gc.h
+        VM/vm_chunk.c
+        VM/vm_chunk.h
+        VM/vm_compile_internal.h
+        VM/vm_compile_can.c
+        VM/vm_compile_can.h
 )
 
 add_library(mks_runtime STATIC
@@ -105,6 +124,7 @@ add_executable(mks
 )
 
 target_link_libraries(mks PRIVATE mks_runtime)
+target_link_options(mks PRIVATE -rdynamic)
 
 add_executable(mks_unit_tests
         tests/unit/test_runtime.c
@@ -146,7 +166,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(NOT MSVC)
-    target_link_libraries(mks_runtime PUBLIC m)
+    target_link_libraries(mks_runtime PUBLIC m dl)
 endif()
 
 include(GNUInstallDirs)
@@ -173,6 +193,15 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/std")
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/std/"
             DESTINATION "${MKS_INSTALL_STDLIB_DIR}/std"
             FILES_MATCHING PATTERN "*.mks")
+endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/GGui")
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/GGui/"
+            DESTINATION "${MKS_INSTALL_STDLIB_DIR}/GGui"
+            FILES_MATCHING
+                PATTERN "*.mks"
+                PATTERN "package.pkg"
+                PATTERN "README.md")
 endif()
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/LICENSE")

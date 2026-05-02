@@ -1,0 +1,108 @@
+using std.tty as tty;
+using ggui.core as core;
+
+export fnc text(x, y, w, value) ->
+    tty.text(x, y, w, value, core.ALIGN_LEFT, 1);
+<-
+
+export fnc text_center(x, y, w, value) ->
+    tty.text(x, y, w, value, core.ALIGN_CENTER, 1);
+<-
+
+export fnc paragraph(x, y, w, h, value) ->
+    tty.text_wrap(x, y, w, h, value, 1);
+<-
+
+export fnc frame(x, y, w, h, title) ->
+    tty.window(x, y, w, h, title, core.BORDER_ROUND);
+<-
+
+export fnc panel(x, y, w, h, title, body) ->
+    tty.window(x, y, w, h, title, core.BORDER_ROUND);
+    if (w > 2 && h > 2) ->
+        tty.text_wrap(x + 1, y + 1, w - 2, h - 2, body, 1);
+    <-
+<-
+
+export fnc floating(x, y, w, h, title, body) ->
+    tty.floating_window(x, y, w, h, title, core.BORDER_ROUND);
+    if (w > 2 && h > 2) ->
+        tty.text_wrap(x + 1, y + 1, w - 2, h - 2, body, 1);
+    <-
+<-
+
+export fnc status(x, y, w, value) ->
+    tty.reverse();
+    tty.text(x, y, w, value, core.ALIGN_LEFT, 1);
+    tty.reset();
+<-
+
+export fnc status_bar(value) ->
+    var s =: tty.size_or(80, 24);
+    status(1, s.h, s.w, value);
+<-
+
+export fnc button(x, y, w, label, active) ->
+    tty.button_flat(x, y, w, label, active);
+<-
+
+export fnc input(x, y, w, label, value, cursor_pos, focused) ->
+    tty.input_line(x, y, w, label, value, cursor_pos, focused);
+<-
+
+export fnc input_box(x, y, w, label, value, focused) ->
+    tty.input_line(x, y, w, label, value, value.len(), focused);
+<-
+
+export fnc textarea(x, y, w, h, title, value, focused) ->
+    var style =: core.BORDER_SINGLE;
+    if (focused) ->
+        style =: core.BORDER_HEAVY;
+    <-
+
+    tty.window(x, y, w, h, title, style);
+    if (w > 2 && h > 2) ->
+        tty.text_wrap(x + 1, y + 1, w - 2, h - 2, value, 1);
+    <-
+<-
+
+export fnc list(x, y, w, h, title, items, selected) ->
+    tty.window(x, y, w, h, title, core.BORDER_ROUND);
+
+    var max =: h - 2;
+    var count =: items.len();
+    if (count > max) ->
+        count =: max;
+    <-
+
+    var i =: 0;
+    while (i < count) ->
+        if (i ?= selected) ->
+            tty.reverse();
+        <-
+
+        tty.text(x + 1, y + 1 + i, w - 2, items[i], core.ALIGN_LEFT, 1);
+
+        if (i ?= selected) ->
+            tty.reset();
+        <-
+
+        i =: i + 1;
+    <-
+<-
+
+export fnc menu(x, y, w, title, items, selected) ->
+    list(x, y, w, items.len() + 2, title, items, selected);
+<-
+
+export fnc help(x, y, w, value) ->
+    tty.dim();
+    tty.text(x, y, w, value, core.ALIGN_LEFT, 1);
+    tty.reset();
+<-
+
+export fnc app_frame(title, status_text) ->
+    var s =: tty.size_or(80, 24);
+    tty.window(1, 1, s.w, s.h, title, core.BORDER_ROUND);
+    status(2, s.h, s.w - 2, status_text);
+<-

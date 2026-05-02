@@ -3,6 +3,8 @@
 #endif
 
 #include "module.h"
+#include "module_toml.h"
+#include "../mks_module.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +14,11 @@
 #include <libgen.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <setjmp.h>
+
+#ifdef __unix__
+#include <dlfcn.h>
+#endif
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -35,6 +42,7 @@
 #include "../Parser/parser.h"
 #include "../Eval/eval.h"
 #include "../GC/gc.h"
+#include "../VM/vm.h"
 #include "../Utils/file.h"
 #include "../Utils/hash.h"
 #include "../std/registry.h"
@@ -45,12 +53,28 @@ typedef struct NativeModule {
     struct NativeModule *next;
 } NativeModule;
 
-typedef struct LoadedModule {
-    char *key; /* abs path for .mks or name for native */
+#define MODULE_CACHE_SLOTS 128
+
+typedef struct {
+    char *key;          /* NULL = empty slot */
     RuntimeValue exports;
     Environment *env;
     int loading;
-    struct LoadedModule *next;
+    int failed;         /* set if module eval panicked — retry on next import */
+} ModuleCacheEntry;
+
+typedef struct {
+    ModuleCacheEntry *slots;  /* heap-allocated, variable size */
+    int capacity;             /* current size (power of 2) */
+    int count;                /* occupied slots */
+} ModuleCache;
+
+typedef struct LoadedModule {
+    char *key;          /* abs path for .mks or name for native */
+    RuntimeValue exports;
+    Environment *env;
+    int loading;
+    struct LoadedModule *next;  /* legacy - kept for ABI compat */
 } LoadedModule;
 
 typedef struct ProgramNode {
@@ -155,27 +179,101 @@ void module_bind_native(RuntimeValue exports, const char *name, NativeFn fn) {
     env_set_fast(exports.data.obj_env, name, get_hash(name), v);
 }
 
+static ModuleCache *get_module_cache(void) {
+    void **cache_ptr = (void **)&mks_context_current()->module_loaded_modules;
+    if (*cache_ptr == NULL) {
+        ModuleCache *cache = (ModuleCache *)malloc(sizeof(ModuleCache));
+        if (!cache) runtime_error("Out of memory for module cache");
+        cache->capacity = MODULE_CACHE_SLOTS;
+        cache->count = 0;
+        cache->slots = (ModuleCacheEntry *)malloc(sizeof(ModuleCacheEntry) * (size_t)cache->capacity);
+        if (!cache->slots) {
+            free(cache);
+            runtime_error("Out of memory for module cache slots");
+        }
+        memset(cache->slots, 0, sizeof(ModuleCacheEntry) * (size_t)cache->capacity);
+        *cache_ptr = cache;
+    }
+    return (ModuleCache *)*cache_ptr;
+}
+
 static LoadedModule *find_loaded(const char *key) {
-    for (LoadedModule *m = loaded_modules; m != NULL; m = m->next) {
-        if (strcmp(m->key, key) == 0) return m;
+    ModuleCache *cache = get_module_cache();
+    unsigned int h = get_hash(key) & ((unsigned int)cache->capacity - 1);
+
+    for (int i = 0; i < cache->capacity; i++) {
+        unsigned int slot = (h + (unsigned int)i) & ((unsigned int)cache->capacity - 1);
+        if (cache->slots[slot].key == NULL) {
+            return NULL;  /* empty slot, key not found */
+        }
+        if (strcmp(cache->slots[slot].key, key) == 0) {
+            if (cache->slots[slot].failed) {
+                return NULL;  /* failed load; treat as not found to retry */
+            }
+            return (LoadedModule *)&cache->slots[slot];
+        }
     }
     return NULL;
 }
 
-static LoadedModule *remember_loaded(const char *key, RuntimeValue exports, Environment *env, int loading) {
-    LoadedModule *m = (LoadedModule *)malloc(sizeof(LoadedModule));
-    if (!m) runtime_error("Out of memory while tracking loaded modules");
-    m->key = strdup(key);
-    if (!m->key) runtime_error("Out of memory while tracking loaded modules key");
-    m->exports = exports;
-    m->env = env;
-    m->loading = loading;
-    m->next = loaded_modules;
-    loaded_modules = m;
+static void cache_resize(ModuleCache *cache) {
+    int new_capacity = cache->capacity * 2;
+    ModuleCacheEntry *new_slots = (ModuleCacheEntry *)malloc(sizeof(ModuleCacheEntry) * (size_t)new_capacity);
+    if (!new_slots) {
+        runtime_error("Out of memory resizing module cache");
+    }
+    memset(new_slots, 0, sizeof(ModuleCacheEntry) * (size_t)new_capacity);
 
-    /* Pin module environment for the whole context lifetime. */
-    gc_pin_env(env);
-    return m;
+    /* Rehash all non-null non-failed entries into new table */
+    for (int i = 0; i < cache->capacity; i++) {
+        if (cache->slots[i].key != NULL && !cache->slots[i].failed) {
+            unsigned int h = get_hash(cache->slots[i].key) & ((unsigned int)new_capacity - 1);
+            for (int j = 0; j < new_capacity; j++) {
+                unsigned int slot = (h + (unsigned int)j) & ((unsigned int)new_capacity - 1);
+                if (new_slots[slot].key == NULL) {
+                    new_slots[slot] = cache->slots[i];
+                    break;
+                }
+            }
+        }
+    }
+
+    free(cache->slots);
+    cache->slots = new_slots;
+    cache->capacity = new_capacity;
+}
+
+static LoadedModule *remember_loaded(const char *key, RuntimeValue exports, Environment *env, int loading) {
+    ModuleCache *cache = get_module_cache();
+
+    /* Check load factor and resize if necessary (at 70% capacity) */
+    if (cache->count >= cache->capacity * 7 / 10) {
+        cache_resize(cache);
+    }
+
+    unsigned int h = get_hash(key) & ((unsigned int)cache->capacity - 1);
+
+    for (int i = 0; i < cache->capacity; i++) {
+        unsigned int slot = (h + (unsigned int)i) & ((unsigned int)cache->capacity - 1);
+        if (cache->slots[slot].key == NULL ||
+            (strcmp(cache->slots[slot].key, key) == 0 && cache->slots[slot].failed)) {
+            /* New empty slot, or reuse a failed slot with same key */
+            if (cache->slots[slot].key == NULL) {
+                cache->slots[slot].key = strdup(key);
+                if (!cache->slots[slot].key) runtime_error("Out of memory for module cache key");
+                cache->count++;
+            }
+            cache->slots[slot].exports = exports;
+            cache->slots[slot].env = env;
+            cache->slots[slot].loading = loading;
+            cache->slots[slot].failed = 0;
+            gc_pin_env(env);
+            return (LoadedModule *)&cache->slots[slot];
+        }
+    }
+
+    runtime_error("Module cache overflow (too many loaded modules)");
+    return NULL;
 }
 
 void module_free_all(void) {
@@ -188,17 +286,22 @@ void module_free_all(void) {
     }
     native_registry = NULL;
 
-    LoadedModule *lm = loaded_modules;
-    while (lm != NULL) {
-        LoadedModule *next = lm->next;
-        if (lm->env != NULL) {
-            gc_unpin_env(lm->env);
+    /* Free hash table cache */
+    void **cache_ptr = (void **)&loaded_modules;
+    if (*cache_ptr != NULL) {
+        ModuleCache *cache = (ModuleCache *)*cache_ptr;
+        for (int i = 0; i < cache->capacity; i++) {
+            if (cache->slots[i].key != NULL) {
+                if (cache->slots[i].env != NULL) {
+                    gc_unpin_env(cache->slots[i].env);
+                }
+                free(cache->slots[i].key);
+            }
         }
-        free(lm->key);
-        free(lm);
-        lm = next;
+        free(cache->slots);
+        free(cache);
+        *cache_ptr = NULL;
     }
-    loaded_modules = NULL;
 
     ProgramNode *p = programs;
     while (p != NULL) {
@@ -371,6 +474,24 @@ static int make_absolute_path(const char *path, char *out) {
     return 0;
 }
 
+static int try_path_or_dir(const char *base, const char *file_rel, char *out) {
+    char p[PATH_MAX];
+    if (snprintf(p, sizeof(p), "%s/%s", base, file_rel) < (int)sizeof(p)) {
+        if (try_realpath(p, out)) return 1;
+    }
+    /* Also try directory form: if file_rel is "std/X.mks", try "std/X/mod.mks" */
+    char mod_rel[PATH_MAX];
+    snprintf(mod_rel, sizeof(mod_rel), "%s", file_rel);
+    char *dot = strrchr(mod_rel, '.');
+    if (dot && strcmp(dot, ".mks") == 0) {
+        *dot = '\0';
+        if (snprintf(p, sizeof(p), "%s/%s/mod.mks", base, mod_rel) < (int)sizeof(p)) {
+            if (try_realpath(p, out)) return 1;
+        }
+    }
+    return 0;
+}
+
 static int make_builtin_module_path(const char *path, char *out) {
     if (path == NULL) return 0;
 
@@ -383,35 +504,24 @@ static int make_builtin_module_path(const char *path, char *out) {
     if (base && base[0]) {
         if (try_exec_relative_std_path(base, with_ext, out)) return 1;
 
-        char tmp_out[PATH_MAX];
-        if (snprintf(tmp_out, PATH_MAX, "%s/%s", base, with_ext) < PATH_MAX &&
-            try_realpath(tmp_out, out)) return 1;
+        if (try_path_or_dir(base, with_ext, out)) return 1;
 
         char parent[PATH_MAX];
         if (snprintf(parent, PATH_MAX, "%s/..", base) < PATH_MAX) {
-            if (snprintf(tmp_out, PATH_MAX, "%s/%s", parent, with_ext) < PATH_MAX &&
-                try_realpath(tmp_out, out)) return 1;
+            if (try_path_or_dir(parent, with_ext, out)) return 1;
         }
     }
 
     const char *env_std = getenv("MKS_STD_PATH");
     if (env_std && env_std[0]) {
-        char tmp_out[PATH_MAX];
-        if (snprintf(tmp_out, PATH_MAX, "%s/%s", env_std, with_ext) < PATH_MAX &&
-            try_realpath(tmp_out, out)) return 1;
+        if (try_path_or_dir(env_std, with_ext, out)) return 1;
     }
 
-    {
-        char tmp_out[PATH_MAX];
-        if (snprintf(tmp_out, sizeof(tmp_out), "%s/%s", MKS_INSTALL_STDLIB_DIR_ABS, with_ext) < (int)sizeof(tmp_out) &&
-            try_realpath(tmp_out, out)) return 1;
-    }
+    if (try_path_or_dir(MKS_INSTALL_STDLIB_DIR_ABS, with_ext, out)) return 1;
 
     static const char *system_std_paths[] = {"/usr/local/share/mks", "/usr/share/mks", NULL};
     for (int i = 0; system_std_paths[i] != NULL; i++) {
-        char tmp_out[PATH_MAX];
-        if (snprintf(tmp_out, PATH_MAX, "%s/%s", system_std_paths[i], with_ext) < PATH_MAX &&
-            try_realpath(tmp_out, out)) return 1;
+        if (try_path_or_dir(system_std_paths[i], with_ext, out)) return 1;
     }
 
     return 0;
@@ -474,6 +584,11 @@ static int path_exists(const char *path) {
 static int path_is_regular_file(const char *path) {
     struct stat st;
     return path != NULL && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static int path_is_directory(const char *path) {
+    struct stat st;
+    return path != NULL && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
 static int has_suffix(const char *text, const char *suffix) {
@@ -1003,6 +1118,24 @@ static int resolve_package_import(const char *spec, char *out, size_t out_size) 
     PackageManifest manifest;
     int has_manifest = read_package_manifest(package_root, &manifest);
 
+    // Try mks.toml if package.pkg not found (0.2 compatibility)
+    if (!has_manifest) {
+        PackageToml toml;
+        if (package_toml_read(package_root, &toml)) {
+            strcpy(manifest.name, toml.name);
+            if (toml.entry[0] != '\0') {
+                strcpy(manifest.lib_path, toml.entry);
+                manifest.has_lib = 1;
+            } else if (toml.main[0] != '\0') {
+                strcpy(manifest.lib_path, toml.main);
+                manifest.has_lib = 1;
+            }
+            manifest.has_name = 1;
+            has_manifest = 1;
+            package_toml_free(&toml);
+        }
+    }
+
     char external_roots[3][PATH_MAX];
     int external_root_count = 0;
 
@@ -1148,25 +1281,57 @@ static int is_module_load_node(ASTNodeType type) {
 
 static RuntimeValue eval_module_program(const ASTNode *program, Environment *module_env) {
     RuntimeValue last = make_null();
+    ASTNode *load_nodes[1024];
+    int load_count = 0;
 
     if (program == NULL) {
         return last;
     }
 
     if (program->type != AST_BLOCK) {
-        return is_module_load_node(program->type) ? eval(program, module_env) : last;
+        if (!is_module_load_node(program->type)) {
+            return last;
+        }
+        load_nodes[load_count++] = (ASTNode *)program;
+    } else {
+        for (int i = 0; i < program->data.block.count; i++) {
+            ASTNode *stmt = program->data.block.items[i];
+            if (stmt == NULL || !is_module_load_node(stmt->type)) {
+                continue;
+            }
+            if (load_count >= (int)(sizeof(load_nodes) / sizeof(load_nodes[0]))) {
+                runtime_error("Module has too many top-level load nodes");
+            }
+            load_nodes[load_count++] = stmt;
+        }
     }
 
-    for (int i = 0; i < program->data.block.count; i++) {
-        ASTNode *stmt = program->data.block.items[i];
-        if (stmt == NULL) {
-            continue;
-        }
-        if (is_module_load_node(stmt->type)) {
-            last = eval(stmt, module_env);
-        }
+    if (load_count == 0) {
+        return last;
     }
 
+    ASTNode synthetic = {0};
+    synthetic.type = AST_BLOCK;
+    synthetic.line = program->line;
+    synthetic.data.block.items = load_nodes;
+    synthetic.data.block.count = load_count;
+
+    Chunk temp_chunk;
+    if (!compile_program(&synthetic, &temp_chunk)) {
+        runtime_error("VM could not compile module load program");
+    }
+
+    Chunk *owned_chunk = (Chunk *)malloc(sizeof(Chunk));
+    if (owned_chunk == NULL) {
+        chunk_free(&temp_chunk);
+        runtime_error("Out of memory storing compiled module chunk");
+    }
+    *owned_chunk = temp_chunk;
+    vm_register_owned_chunk(owned_chunk);
+
+    VM vm;
+    vm_init(&vm, owned_chunk, module_env);
+    last = vm_run(&vm);
     return last;
 }
 
@@ -1196,7 +1361,37 @@ static RuntimeValue load_script(const char *abs_path) {
 
     LoadedModule *record = remember_loaded(abs_path, exports, module_env, 1);
 
+    /* Wrap eval_module_program in setjmp guard to catch panics and mark cache as failed. */
+    MKSContext *ctx = mks_context_current();
+    jmp_buf saved_jmp;
+    int prev_active = ctx->error_active;
+    memcpy(&saved_jmp, &ctx->error_jmp, sizeof(jmp_buf));
+    ctx->error_active = 1;
+
+    if (setjmp(ctx->error_jmp) != 0) {
+        /* eval panicked; mark cache entry as failed and re-raise. */
+        ModuleCacheEntry *entry = (ModuleCacheEntry *)record;
+        entry->failed = 1;
+        ctx->error_active = prev_active;
+        memcpy(&ctx->error_jmp, &saved_jmp, sizeof(jmp_buf));
+        /* Clean up before re-raising. */
+        free(source);
+        runtime_pop_source(prev_source);
+        runtime_pop_file(prev_file);
+        gc_pop_root();
+        gc_pop_env();
+        gc_pop_env();
+        /* Re-raise the error. */
+        if (prev_active) {
+            longjmp(saved_jmp, 1);
+        }
+        exit(1);
+    }
+
     eval_module_program(program, module_env);
+
+    ctx->error_active = prev_active;
+    memcpy(&ctx->error_jmp, &saved_jmp, sizeof(jmp_buf));
     record->loading = 0;
 
     ProgramNode *pnode = (ProgramNode *)malloc(sizeof(ProgramNode));
@@ -1237,6 +1432,255 @@ static RuntimeValue load_native_with_init(const char *key, NativeModuleInit init
     remember_loaded(key, exports, module_env, 0);
     return exports;
 }
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+static int resolve_pkg_module(const char *pkg_name, char *out, size_t out_size) {
+    if (pkg_name == NULL || out == NULL || out_size == 0) return 0;
+
+    char start[PATH_MAX];
+    const char *cur = runtime_current_file();
+    if (cur != NULL && strstr(cur, "::") == NULL) {
+        if (!path_dirname(cur, start, sizeof(start))) {
+            if (!getcwd(start, sizeof(start))) return 0;
+        }
+    } else {
+        if (!getcwd(start, sizeof(start))) return 0;
+    }
+
+    /* Convert to absolute path in case it's relative (e.g., ".") */
+    char abs_start[PATH_MAX];
+    if (!try_realpath(start, abs_start)) {
+        snprintf(abs_start, sizeof(abs_start), "%s", start);
+    }
+
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s", abs_start);
+
+    for (int depth = 0; depth < 8; depth++) {
+        /* Try mks_modules/<pkg_name>/ directory */
+        char pkg_dir[PATH_MAX];
+        snprintf(pkg_dir, sizeof(pkg_dir), "%s/mks_modules/%s", dir, pkg_name);
+        if (path_is_directory(pkg_dir)) {
+            /* Try mks.toml entry */
+            PackageToml toml;
+            if (package_toml_read(pkg_dir, &toml)) {
+                const char *entry = toml.entry[0] ? toml.entry : toml.main;
+                if (entry[0]) {
+                    snprintf(out, out_size, "%s/%s", pkg_dir, entry);
+                    package_toml_free(&toml);
+                    if (path_is_regular_file(out)) return 1;
+                }
+                package_toml_free(&toml);
+            }
+            /* Try package.pkg manifest */
+            PackageManifest manifest;
+            if (read_package_manifest(pkg_dir, &manifest) && manifest.has_lib) {
+                snprintf(out, out_size, "%s/%s", pkg_dir, manifest.lib_path);
+                if (path_is_regular_file(out)) return 1;
+            }
+            /* Try conventional names */
+            snprintf(out, out_size, "%s/lib.mks", pkg_dir);
+            if (path_is_regular_file(out)) return 1;
+            snprintf(out, out_size, "%s/index.mks", pkg_dir);
+            if (path_is_regular_file(out)) return 1;
+            snprintf(out, out_size, "%s/mod.mks", pkg_dir);
+            if (path_is_regular_file(out)) return 1;
+        }
+
+        /* Try mks_modules/<pkg_name>.mkspkg */
+        char pkg_arc[PATH_MAX];
+        snprintf(pkg_arc, sizeof(pkg_arc), "%s/mks_modules/%s.mkspkg", dir, pkg_name);
+        if (path_is_regular_file(pkg_arc)) {
+            snprintf(out, out_size, "%s", pkg_arc);
+            return 1;
+        }
+
+        /* Move up one level */
+        char parent[PATH_MAX];
+        if (!path_dirname(dir, parent, sizeof(parent))) break;
+        if (strcmp(parent, dir) == 0) break;
+        snprintf(dir, sizeof(dir), "%s", parent);
+    }
+
+    /* Check ~/.mks/packages/<pkg_name>/ */
+    const char *home = getenv("HOME");
+    if (home != NULL) {
+        char hpkg[PATH_MAX];
+        snprintf(hpkg, sizeof(hpkg), "%s/.mks/packages/%s", home, pkg_name);
+        if (path_is_directory(hpkg)) {
+            PackageToml toml;
+            if (package_toml_read(hpkg, &toml)) {
+                const char *entry = toml.entry[0] ? toml.entry : toml.main;
+                if (entry[0]) {
+                    snprintf(out, out_size, "%s/%s", hpkg, entry);
+                    package_toml_free(&toml);
+                    if (path_is_regular_file(out)) return 1;
+                }
+                package_toml_free(&toml);
+            }
+            snprintf(out, out_size, "%s/lib.mks", hpkg);
+            if (path_is_regular_file(out)) return 1;
+        }
+    }
+
+    return 0;
+}
+#pragma GCC diagnostic pop
+
+static int native_name_valid(const char *name) {
+    if (name == NULL || name[0] == '\0') return 0;
+    if (strstr(name, "..") != NULL) return 0;
+    if (strchr(name, '/') != NULL) return 0;
+    if (strchr(name, '\\') != NULL) return 0;
+    return 1;
+}
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+static int resolve_native_module(const char *native_name, char *out, size_t out_size) {
+    if (native_name == NULL || out == NULL || out_size == 0) return 0;
+
+    char start[PATH_MAX];
+    const char *cur = runtime_current_file();
+    if (cur != NULL && strstr(cur, "::") == NULL) {
+        if (!path_dirname(cur, start, sizeof(start))) {
+            if (!getcwd(start, sizeof(start))) return 0;
+        }
+    } else {
+        if (!getcwd(start, sizeof(start))) return 0;
+    }
+
+    char abs_start[PATH_MAX];
+    if (!try_realpath(start, abs_start)) {
+        snprintf(abs_start, sizeof(abs_start), "%s", start);
+    }
+
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s", abs_start);
+
+    for (int depth = 0; depth < 8; depth++) {
+        /* Try mks_modules/<native_name>/<native_name>.so */
+        char so_path[PATH_MAX];
+        snprintf(so_path, sizeof(so_path), "%s/mks_modules/%s/%s.so", dir, native_name, native_name);
+        if (path_is_regular_file(so_path)) {
+            snprintf(out, out_size, "%s", so_path);
+            return 1;
+        }
+
+        /* Try mks_modules/<native_name>.so */
+        snprintf(so_path, sizeof(so_path), "%s/mks_modules/%s.so", dir, native_name);
+        if (path_is_regular_file(so_path)) {
+            snprintf(out, out_size, "%s", so_path);
+            return 1;
+        }
+
+        /* Move up one level */
+        char parent[PATH_MAX];
+        if (!path_dirname(dir, parent, sizeof(parent))) break;
+        if (strcmp(parent, dir) == 0) break;
+        snprintf(dir, sizeof(dir), "%s", parent);
+    }
+
+    /* Check system paths */
+    static const char *system_paths[] = {
+        "/usr/local/lib/mks",
+        "/usr/lib/mks",
+        NULL
+    };
+
+    for (int i = 0; system_paths[i] != NULL; i++) {
+        char so_path[PATH_MAX];
+        snprintf(so_path, sizeof(so_path), "%s/%s.so", system_paths[i], native_name);
+        if (path_is_regular_file(so_path)) {
+            snprintf(out, out_size, "%s", so_path);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+#pragma GCC diagnostic pop
+
+#ifdef __unix__
+static RuntimeValue load_native_dlopen(const char *name, const char *path) {
+    /* Use RTLD_GLOBAL so the .so can access symbols from the main executable. */
+    void *handle = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
+    if (!handle) {
+        runtime_error("dlopen '%s': %s", path, dlerror());
+    }
+
+    /* Policy: native module handles are never closed (no dlclose at exit).
+     * The OS reclaims them on process termination. This avoids use-after-free
+     * risks from static destructors or cleanup code in the .so that runs after
+     * MKS module_free_all() has already freed the environment. */
+
+    char sym[256];
+    snprintf(sym, sizeof(sym), "mks_module_init_%s", name);
+    NativeModuleInit init = (NativeModuleInit)(uintptr_t)dlsym(handle, sym);
+    if (!init) {
+        dlclose(handle);
+        runtime_error("symbol '%s' not found in '%s'", sym, path);
+    }
+
+    /* Check ABI version compatibility before calling init. */
+    typedef int (*AbiVersionFn)(void);
+    AbiVersionFn abi_fn = (AbiVersionFn)(uintptr_t)dlsym(handle, "mks_module_abi_version");
+    if (!abi_fn) {
+        dlclose(handle);
+        runtime_error("native module '%s' does not expose mks_module_abi_version", name);
+    }
+    int module_abi = abi_fn();
+    if (module_abi != MKS_MODULE_ABI_VERSION) {
+        dlclose(handle);
+        runtime_error("native module '%s' ABI mismatch: expected %d, got %d",
+                      name, MKS_MODULE_ABI_VERSION, module_abi);
+    }
+
+    Environment *module_env = env_create_child(modules_parent_env);
+    gc_push_env(module_env);
+    Environment *exports_env = env_create_child(NULL);
+    gc_push_env(exports_env);
+
+    RuntimeValue exports = make_module(exports_env);
+    gc_push_root(&exports);
+    env_set_fast(module_env, "exports", get_hash("exports"), exports);
+
+    /* Wrap init() call in setjmp guard to catch panics and clean up resources. */
+    MKSContext *ctx = mks_context_current();
+    jmp_buf saved_jmp;
+    int prev_active = ctx->error_active;
+    memcpy(&saved_jmp, &ctx->error_jmp, sizeof(jmp_buf));
+    ctx->error_active = 1;
+
+    if (setjmp(ctx->error_jmp) != 0) {
+        /* init() panicked; restore error state and clean up. */
+        ctx->error_active = prev_active;
+        memcpy(&ctx->error_jmp, &saved_jmp, sizeof(jmp_buf));
+        gc_pop_root();
+        gc_pop_env();
+        gc_pop_env();
+        /* Re-raise the error. If an outer error handler is active, longjmp to it; else exit. */
+        if (prev_active) {
+            longjmp(saved_jmp, 1);
+        }
+        exit(1);
+    }
+
+    init(exports, module_env);
+
+    ctx->error_active = prev_active;
+    memcpy(&ctx->error_jmp, &saved_jmp, sizeof(jmp_buf));
+
+    gc_pop_root();
+    gc_pop_env();
+    gc_pop_env();
+
+    remember_loaded(name, exports, module_env, 0);
+    return exports;
+}
+#endif
 
 RuntimeValue module_import(const char *spec, const char *alias, bool is_legacy_path, bool star_import, Environment *requester_env) {
     if (spec == NULL) runtime_error("Import spec is null");
@@ -1292,6 +1736,48 @@ RuntimeValue module_import(const char *spec, const char *alias, bool is_legacy_p
             bind_module_alias(requester_env, alias, exports);
             return exports;
         }
+    }
+
+    /* 1b2. Explicit native.X import (dlopen) */
+    if (!is_legacy_path && strncmp(spec, "native.", 7) == 0) {
+#ifdef __unix__
+        const char *native_name = spec + 7;
+        if (!native_name_valid(native_name)) {
+            runtime_error("invalid native module name: '%s' (must not contain /, \\, or ..)", native_name);
+        }
+        char so_path[PATH_MAX];
+        if (!resolve_native_module(native_name, so_path, sizeof(so_path))) {
+            runtime_error("cannot find native.%s\n  Searched: ./mks_modules/, parent dirs, /usr/local/lib/mks/, /usr/lib/mks/", native_name);
+        }
+        LoadedModule *lm = find_loaded(native_name);
+        RuntimeValue exports = lm ? lm->exports : load_native_dlopen(native_name, so_path);
+        char alias_buf[PATH_MAX];
+        if (alias == NULL) {
+            module_guess_alias(native_name, alias_buf, sizeof(alias_buf));
+            alias = alias_buf;
+        }
+        bind_module_alias(requester_env, alias, exports);
+        return exports;
+#else
+        runtime_error("native module loading not supported on this platform");
+#endif
+    }
+
+    /* 1c. Explicit pkg.X import */
+    if (!is_legacy_path && strncmp(spec, "pkg.", 4) == 0) {
+        const char *pkg_name = spec + 4;
+        if (!resolve_pkg_module(pkg_name, key, sizeof(key))) {
+            runtime_error("cannot find pkg.%s\n  Searched: ./mks_modules/%s/ and parent directories", pkg_name, pkg_name);
+        }
+        LoadedModule *lm2 = find_loaded(key);
+        RuntimeValue exports2 = lm2 ? lm2->exports : load_script(key);
+        char alias_buf2[PATH_MAX];
+        if (alias == NULL) {
+            module_guess_alias(pkg_name, alias_buf2, sizeof(alias_buf2));
+            alias = alias_buf2;
+        }
+        bind_module_alias(requester_env, alias, exports2);
+        return exports2;
     }
 
     /* 2. Resolve user script path or package module. */

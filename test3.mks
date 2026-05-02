@@ -1,0 +1,10 @@
+var x =: 0;
+
+repeat i in 5 ->
+    if (i < 3) ->
+        continue;
+    <-
+    x =: x + 1;
+<-
+
+Writeln(x);

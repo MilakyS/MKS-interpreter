@@ -1,0 +1,68 @@
+using ggui.core as core;
+using ggui.screen as screen_mod;
+using ggui.widgets as widgets;
+
+export var VERSION =: "0.1.0";
+
+export var BORDER_SINGLE =: core.BORDER_SINGLE;
+export var BORDER_DOUBLE =: core.BORDER_DOUBLE;
+export var BORDER_ROUND =: core.BORDER_ROUND;
+export var BORDER_HEAVY =: core.BORDER_HEAVY;
+export var FOCUS_MENU =: core.FOCUS_MENU;
+export var FOCUS_INPUT =: core.FOCUS_INPUT;
+
+export fnc begin() -> core.begin(); <-
+export fnc finish() -> core.finish(); <-
+export fnc clear() -> core.clear(); <-
+export fnc flush() -> core.flush(); <-
+export fnc reset() -> core.reset(); <-
+export fnc cursor(x, y) -> core.cursor(x, y); <-
+export fnc size() -> return core.size(); <-
+export fnc terminal_size(w, h) -> return core.screen(w, h); <-
+export fnc screen() -> return screen_mod.new(); <-
+export fnc rect(x, y, w, h) -> return core.rect(x, y, w, h); <-
+export fnc screen_rect() -> return core.screen_rect(); <-
+export fnc fit_rect(x, y, w, h) -> return core.fit_rect(x, y, w, h); <-
+export fnc inner(rect) -> return core.inner(rect); <-
+export fnc inset(rect, padding) -> return core.inset(rect, padding); <-
+export fnc split_vertical(rect, left_w, gap) -> return core.split_vertical(rect, left_w, gap); <-
+export fnc split_horizontal(rect, top_h, gap) -> return core.split_horizontal(rect, top_h, gap); <-
+export fnc clamp_rect(rect, bounds) -> return core.clamp_rect(rect, bounds); <-
+export fnc center_rect(w, h) -> return core.center_rect(w, h); <-
+export fnc is_tty() -> return core.is_tty(); <-
+export fnc clamp(value, low, high) -> return core.clamp(value, low, high); <-
+export fnc floor(value) -> return core.floor(value); <-
+export fnc div_floor(value, divisor) -> return core.div_floor(value, divisor); <-
+
+export fnc key() -> return core.key(); <-
+export fnc event() -> return core.event(); <-
+export fnc wait_key() -> return core.wait_key(); <-
+export fnc poll(ms) -> return core.poll(ms); <-
+export fnc readch() -> return core.readch(); <-
+export fnc is_quit_key(key) -> return core.is_quit_key(key); <-
+export fnc is_focus_next_key(key) -> return core.is_focus_next_key(key); <-
+export fnc is_focus_prev_key(key) -> return core.is_focus_prev_key(key); <-
+export fnc toggle_focus(focus) -> return core.toggle_focus(focus); <-
+export fnc edit_key(value, cursor_pos, key) -> return core.edit_key(value, cursor_pos, key); <-
+
+export fnc text(x, y, w, value) -> widgets.text(x, y, w, value); <-
+export fnc text_center(x, y, w, value) -> widgets.text_center(x, y, w, value); <-
+export fnc paragraph(x, y, w, h, value) -> widgets.paragraph(x, y, w, h, value); <-
+export fnc frame(x, y, w, h, title) -> widgets.frame(x, y, w, h, title); <-
+export fnc panel(x, y, w, h, title, body) -> widgets.panel(x, y, w, h, title, body); <-
+export fnc modal(title, body, button_label) -> widgets.modal(title, body, button_label); <-
+export fnc box(x, y, w, h) -> widgets.box(x, y, w, h); <-
+export fnc progress(x, y, w, value, max) -> widgets.progress(x, y, w, value, max); <-
+export fnc labeled_progress(x, y, w, label, value, max) -> widgets.labeled_progress(x, y, w, label, value, max); <-
+export fnc divider(screen, x, y, w) -> screen.divider(x, y, w); <-
+export fnc pane(screen, x, y, w, h, title, focused) -> screen.pane(x, y, w, h, title, focused); <-
+export fnc pane_status(screen, x, y, w, h, text, focused) -> screen.pane_status(x, y, w, h, text, focused); <-
+export fnc command_bar(screen, text) -> screen.command_bar(text); <-
+export fnc status(x, y, w, value) -> widgets.status(x, y, w, value); <-
+export fnc status_bar(value) -> widgets.status_bar(value); <-
+export fnc button(x, y, w, label, active) -> widgets.button(x, y, w, label, active); <-
+export fnc input(x, y, w, label, value, cursor_pos, focused) -> widgets.input(x, y, w, label, value, cursor_pos, focused); <-
+export fnc input_idle(x, y, w, label, value) -> widgets.input_idle(x, y, w, label, value); <-
+export fnc list(x, y, w, h, title, items, selected) -> widgets.list(x, y, w, h, title, items, selected); <-
+export fnc focus_status(focus) -> return widgets.focus_status(focus); <-
+export fnc app_frame(title, status_text) -> widgets.app_frame(title, status_text); <-

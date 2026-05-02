@@ -2,6 +2,7 @@
 
 #include "extension.h"
 #include "module.h"
+#include "../VM/vm.h"
 #include "../std/watch.h"
 
 #include <string.h>
@@ -52,6 +53,7 @@ void mks_context_dispose(MKSContext *ctx) {
     mks_context_set_current(ctx);
 
     module_free_all();
+    vm_free_all();
     extension_free_all();
     watch_clear_all();
     gc_free_all();

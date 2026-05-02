@@ -1,0 +1,14 @@
+fnc run() ->
+    defer ->
+        Writeln("inner defer");
+    <-
+
+    Writeln("body");
+    return 1;
+<-
+
+defer ->
+    Writeln("outer defer");
+<-
+
+Writeln(run());

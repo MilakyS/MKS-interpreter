@@ -1,0 +1,36 @@
+using native.string_builder as sb;
+
+Writeln("=== StringBuilder Performance Example ===");
+Writeln("");
+Writeln("Building a 20-item list with StringBuilder:");
+
+var builder =: sb.builder();
+for(var i =: 1; i <= 20; i =: i + 1) ->
+    sb.append(builder, "Item ");
+    sb.append(builder, i);
+    sb.append(builder, " (value: ");
+    sb.append(builder, i * 100);
+    sb.append_line(builder, ")");
+<-
+
+var result =: sb.to_string(builder);
+Writeln(result);
+
+Writeln("Final string length: " + sb.len(builder) + " bytes");
+Writeln("Buffer capacity: " + sb.capacity(builder) + " bytes");
+
+Writeln("");
+Writeln("Building formatted JSON-like output:");
+var json =: sb.builder();
+sb.append_line(json, "{");
+sb.append_line(json, "  \"name\": \"StringBuilder\",");
+sb.append_line(json, "  \"version\": \"1.0\",");
+sb.append_line(json, "  \"features\": [");
+sb.append_line(json, "    \"efficient\",");
+sb.append_line(json, "    \"O(n) complexity\",");
+sb.append_line(json, "    \"chain operations\"");
+sb.append_line(json, "  ]");
+sb.append_line(json, "}");
+Writeln(sb.to_string(json));
+
+Writeln("=== End of example ===");

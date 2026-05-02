@@ -51,8 +51,11 @@ static void print_usage(const char *argv0) {
     printf("  %s pkg build [dir]         Build .mkspkg artifacts under dist/\n", argv0);
     printf("  %s pkg check [dir]         Validate package.pkg\n", argv0);
     printf("  %s pkg info [dir]          Print package metadata\n", argv0);
+    printf("  %s pkg install <path>      Install package from directory or .mkspkg\n", argv0);
     printf("  %s --version               Show version\n", argv0);
     printf("  %s --help                  Show this help\n", argv0);
+    printf("  %s --vm <file.mks>         Force VM execution only\n", argv0);
+    printf("  %s --dump-bytecode <file>  Print bytecode before execution\n", argv0);
     printf("\n");
     printf("Compatibility:\n");
     printf("  %s --repl                  Alias for `repl`\n", argv0);
@@ -494,6 +497,214 @@ static int validate_package_for_build(const char *dir, PackageInfo *info, char *
     return 1;
 }
 
+static int copy_dir_recursive(const char *src_dir, const char *dst_dir) {
+    /* Create parent directory if needed */
+    char parent[1024];
+    snprintf(parent, sizeof(parent), "%s", dst_dir);
+    char *last_slash = strrchr(parent, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+        if (strlen(parent) > 0 && !is_directory(parent)) {
+            if (mkdir(parent, 0777) != 0) {
+                fprintf(stderr, "mks: cannot create directory '%s': %s\n", parent, strerror(errno));
+                return 0;
+            }
+        }
+    }
+
+    if (!ensure_dir(dst_dir)) return 0;
+
+    DIR *dir = opendir(src_dir);
+    if (dir == NULL) {
+        fprintf(stderr, "mks: cannot open '%s': %s\n", src_dir, strerror(errno));
+        return 0;
+    }
+
+    int ok = 1;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        char src_path[1024], dst_path[1024];
+        if (snprintf(src_path, sizeof(src_path), "%s/%s", src_dir, entry->d_name) >= (int)sizeof(src_path) ||
+            snprintf(dst_path, sizeof(dst_path), "%s/%s", dst_dir, entry->d_name) >= (int)sizeof(dst_path)) {
+            fprintf(stderr, "mks: path too long\n");
+            ok = 0;
+            break;
+        }
+
+        if (is_directory(src_path)) {
+            if (!copy_dir_recursive(src_path, dst_path)) {
+                ok = 0;
+                break;
+            }
+        } else if (path_exists(src_path)) {
+            if (!copy_file(src_path, dst_path)) {
+                ok = 0;
+                break;
+            }
+        }
+    }
+
+    closedir(dir);
+    return ok;
+}
+
+static int read_pkg_name_from_dir(const char *dir, char *name, size_t n) {
+    if (n < 256) return 0;
+
+    PackageInfo info;
+    memset(&info, 0, sizeof(info));
+
+    /* Try package.pkg */
+    char pkg_path[1024];
+    if (snprintf(pkg_path, sizeof(pkg_path), "%s/package.pkg", dir) < (int)sizeof(pkg_path)) {
+        char *source = mks_read_file(pkg_path);
+        if (source != NULL) {
+            int in_pkg = 0;
+            const char *p = source;
+            while (*p) {
+                const char *line_end = strchr(p, '\n');
+                char line[512];
+                if (line_end) {
+                    size_t len = line_end - p;
+                    if (len >= sizeof(line)) len = sizeof(line) - 1;
+                    memcpy(line, p, len);
+                    line[len] = '\0';
+                    p = line_end + 1;
+                } else {
+                    snprintf(line, sizeof(line), "%s", p);
+                    p += strlen(p);
+                }
+
+                const char *l = skip_space(line);
+                if (*l == '[' && strncmp(l, "[package]", 9) == 0) {
+                    in_pkg = 1;
+                } else if (*l == '[') {
+                    in_pkg = 0;
+                } else if (in_pkg) {
+                    if (read_quoted_field(l, "package", info.name, sizeof(info.name)) ||
+                        read_quoted_field(l, "name", info.name, sizeof(info.name))) {
+                        info.has_name = 1;
+                    }
+                }
+            }
+            free(source);
+            if (info.has_name) {
+                snprintf(name, n, "%s", info.name);
+                return 1;
+            }
+        }
+    }
+
+    /* Try mks.toml - simple inline parser */
+    if (snprintf(pkg_path, sizeof(pkg_path), "%s/mks.toml", dir) < (int)sizeof(pkg_path)) {
+        char *source = mks_read_file(pkg_path);
+        if (source != NULL) {
+            const char *p = source;
+            while (*p) {
+                const char *line_end = strchr(p, '\n');
+                char line[512];
+                if (line_end) {
+                    size_t len = line_end - p;
+                    if (len >= sizeof(line)) len = sizeof(line) - 1;
+                    memcpy(line, p, len);
+                    line[len] = '\0';
+                    p = line_end + 1;
+                } else {
+                    snprintf(line, sizeof(line), "%s", p);
+                    p += strlen(p);
+                }
+
+                /* Look for name = "..." */
+                if (strstr(line, "name")) {
+                    const char *eq = strchr(line, '=');
+                    if (eq) {
+                        const char *q1 = strchr(eq, '"');
+                        if (q1) {
+                            const char *q2 = strchr(q1 + 1, '"');
+                            if (q2) {
+                                size_t len = q2 - q1 - 1;
+                                if (len >= n) len = n - 1;
+                                memcpy(name, q1 + 1, len);
+                                name[len] = '\0';
+                                free(source);
+                                return 1;
+                            }
+                        }
+                    }
+                }
+            }
+            free(source);
+        }
+    }
+
+    return 0;
+}
+
+static int cmd_pkg_install(int argc, char **argv) {
+    if (argc < 4) {
+        fprintf(stderr, "Usage: %s pkg install <path>\n", argv[0]);
+        return 1;
+    }
+    if (argc > 4) {
+        fprintf(stderr, "Usage: %s pkg install <path>\n", argv[0]);
+        return 1;
+    }
+
+    const char *src_path = argv[3];
+    char pkg_name[256];
+    memset(pkg_name, 0, sizeof(pkg_name));
+
+    if (!path_exists(src_path)) {
+        fprintf(stderr, "mks: path not found: %s\n", src_path);
+        return 1;
+    }
+
+    int is_dir = is_directory(src_path);
+    int is_mkspkg = !is_dir && has_suffix(src_path, ".mkspkg");
+
+    if (!is_dir && !is_mkspkg) {
+        fprintf(stderr, "mks: expected .mkspkg file or directory, got: %s\n", src_path);
+        return 1;
+    }
+
+    if (is_dir) {
+        if (!read_pkg_name_from_dir(src_path, pkg_name, sizeof(pkg_name))) {
+            fprintf(stderr, "mks: cannot read package name from %s (missing package.pkg or mks.toml)\n", src_path);
+            return 1;
+        }
+    } else {
+        /* .mkspkg file - would need archive parsing */
+        fprintf(stderr, "mks: installing from .mkspkg not yet implemented\n");
+        return 1;
+    }
+
+    char dst_dir[1024];
+    if (snprintf(dst_dir, sizeof(dst_dir), "./mks_modules/%s", pkg_name) >= (int)sizeof(dst_dir)) {
+        fprintf(stderr, "mks: destination path too long\n");
+        return 1;
+    }
+
+    if (path_exists(dst_dir)) {
+        fprintf(stderr, "mks: package already installed: %s\n", dst_dir);
+        return 1;
+    }
+
+    if (!copy_dir_recursive(src_path, dst_dir)) {
+        fprintf(stderr, "mks: failed to install package\n");
+        /* Clean up partial installation */
+        (void)system("rm -rf "); /* would need safe path joining */
+        return 1;
+    }
+
+    printf("installed %s\n", pkg_name);
+    printf("  %s\n", dst_dir);
+    return 0;
+}
+
 static int cmd_pkg_init(int argc, char **argv) {
     if (argc < 4) {
         fprintf(stderr, "Usage: %s pkg init <name>\n", argv[0]);
@@ -703,7 +914,7 @@ static int cmd_pkg_build(int argc, char **argv) {
 
 static int cmd_pkg(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s pkg init <name> | pkg build [dir] | pkg check [dir] | pkg info [dir]\n", argv[0]);
+        fprintf(stderr, "Usage: %s pkg init <name> | pkg build [dir] | pkg check [dir] | pkg info [dir] | pkg install <path>\n", argv[0]);
         return 1;
     }
     if (strcmp(argv[2], "init") == 0) {
@@ -717,6 +928,9 @@ static int cmd_pkg(int argc, char **argv) {
     }
     if (strcmp(argv[2], "info") == 0) {
         return cmd_pkg_check_or_info(argc, argv, 1);
+    }
+    if (strcmp(argv[2], "install") == 0) {
+        return cmd_pkg_install(argc, argv);
     }
 
     fprintf(stderr, "mks: unknown pkg command '%s'\n", argv[2]);
@@ -917,13 +1131,41 @@ int main(const int argc, char **argv) {
         return 0;
     }
 
-    if (strcmp(argv[1], "pkg") == 0) {
+    int argi = 1;
+    int vm_mode = MKS_VM_AUTO;
+    int vm_dump_bytecode = 0;
+    while (argi < argc) {
+        if (strcmp(argv[argi], "--vm") == 0) {
+            vm_mode = MKS_VM_FORCE;
+            argi++;
+            continue;
+        }
+        if (strcmp(argv[argi], "--tree") == 0) {
+            fprintf(stderr, "mks: --tree is no longer supported; runtime is bytecode-only\n");
+            return 2;
+        }
+        if (strcmp(argv[argi], "--dump-bytecode") == 0) {
+            vm_dump_bytecode = 1;
+            argi++;
+            continue;
+        }
+        break;
+    }
+
+    if (argi >= argc) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    if (strcmp(argv[argi], "pkg") == 0) {
         return cmd_pkg(argc, argv);
     }
 
     MKSContext root_context;
     mks_context_init(&root_context, 1024 * 1024);
     mks_context_set_cli_args(&root_context, argc, argv);
+    root_context.vm_mode = vm_mode;
+    root_context.vm_dump_bytecode = vm_dump_bytecode;
 
     const char *gc_debug = getenv("MKS_GC_DEBUG");
     if (gc_debug != NULL && strcmp(gc_debug, "1") == 0) {
@@ -932,24 +1174,24 @@ int main(const int argc, char **argv) {
     }
 
     int status = 0;
-    if (strcmp(argv[1], "repl") == 0 || strcmp(argv[1], "--repl") == 0) {
+    if (strcmp(argv[argi], "repl") == 0 || strcmp(argv[argi], "--repl") == 0) {
         status = run_repl(&root_context);
-    } else if (strcmp(argv[1], "check") == 0) {
-        if (argc < 3) {
+    } else if (strcmp(argv[argi], "check") == 0) {
+        if (argi + 1 >= argc) {
             fprintf(stderr, "Usage: %s check <file.mks>\n", argv[0]);
             status = 1;
         } else {
-            status = check_file(&root_context, argv[2]);
+            status = check_file(&root_context, argv[argi + 1]);
         }
-    } else if (strcmp(argv[1], "--profile") == 0) {
-        if (argc < 3) {
+    } else if (strcmp(argv[argi], "--profile") == 0) {
+        if (argi + 1 >= argc) {
             fprintf(stderr, "Usage: %s --profile <file.mks>\n", argv[0]);
             status = 1;
         } else {
-            status = mks_run_file(&root_context, argv[2], 1, 1);
+            status = mks_run_file(&root_context, argv[argi + 1], 1, 1);
         }
     } else {
-        status = mks_run_file(&root_context, argv[1], 1, 0);
+        status = mks_run_file(&root_context, argv[argi], 1, 0);
     }
 
     mks_context_dispose(&root_context);

@@ -1,0 +1,43 @@
+using std.tty as tty;
+
+export var BORDER_SINGLE =: 0;
+export var BORDER_DOUBLE =: 1;
+export var BORDER_ROUND =: 2;
+export var BORDER_HEAVY =: 3;
+
+export var ALIGN_LEFT =: 0;
+export var ALIGN_CENTER =: 1;
+export var ALIGN_RIGHT =: 2;
+
+export fnc begin() ->
+    if (tty.is_tty()) ->
+        tty.alt_screen();
+        tty.raw();
+        tty.hide_cursor();
+    <-
+    tty.clear();
+<-
+
+export fnc finish() ->
+    tty.reset();
+    if (tty.is_tty()) ->
+        tty.show_cursor();
+        tty.cooked();
+        tty.normal_screen();
+    <-
+<-
+
+export fnc clear() -> tty.clear(); <-
+export fnc flush() -> tty.flush(); <-
+export fnc reset() -> tty.reset(); <-
+export fnc cursor(x, y) -> tty.move(x, y); <-
+export fnc event() -> return tty.read_key(); <-
+export fnc poll(ms) -> return tty.read_key_timeout(ms); <-
+export fnc screen(w, h) -> return tty.size_or(w, h); <-
+export fnc is_tty() -> return tty.is_tty(); <-
+
+export fnc clamp(value, low, high) ->
+    if (value < low) -> return low; <-
+    if (value > high) -> return high; <-
+    return value;
+<-
