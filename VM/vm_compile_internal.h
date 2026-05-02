@@ -18,6 +18,9 @@ typedef struct LoopContext {
     int continue_jumps[VM_MAX_LOOP_JUMPS];
     int continue_count;
 
+    uint8_t builder_slot;
+    int builder_active;
+
     struct LoopContext *prev;
 } LoopContext;
 

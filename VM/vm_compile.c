@@ -83,6 +83,45 @@ static RuntimeValue compiler_fold_binop(int op, RuntimeValue left, RuntimeValue 
     }
 }
 
+static bool compiler_is_string_append_pattern(const ASTNode *assign_node, LocalEntry **out_entry, Compiler *compiler) {
+    if (assign_node == NULL || assign_node->type != AST_ASSIGN) {
+        return false;
+    }
+
+    ASTNode *rhs = assign_node->data.assign.value;
+    if (rhs == NULL || rhs->type != AST_BINOP) {
+        return false;
+    }
+
+    if (rhs->data.binop.op != TOKEN_PLUS) {
+        return false;
+    }
+
+    ASTNode *left = rhs->data.binop.left;
+    if (left == NULL || left->type != AST_IDENTIFIER) {
+        return false;
+    }
+
+    if (!compiler_name_matches(left->data.identifier.name,
+                              left->data.identifier.id_hash,
+                              assign_node->data.assign.name,
+                              assign_node->data.assign.id_hash)) {
+        return false;
+    }
+
+    LocalEntry *entry = compiler_lookup_local(compiler,
+                                             assign_node->data.assign.name,
+                                             assign_node->data.assign.id_hash);
+    if (entry == NULL) {
+        return false;
+    }
+
+    if (out_entry != NULL) {
+        *out_entry = entry;
+    }
+    return true;
+}
+
 static bool compiler_is_inc_local_pattern(const ASTNode *assign_node, LocalEntry **out_entry, Compiler *compiler) {
     if (assign_node == NULL || assign_node->type != AST_ASSIGN) {
         return false;
@@ -452,6 +491,7 @@ static bool compiler_emit_switch(Compiler *compiler, ASTNode *node) {
 static bool compiler_emit_loop_body(Compiler *compiler, ASTNode *body, LoopContext *loop) {
     loop->prev = compiler->loop;
     compiler->loop = loop;
+
     const bool ok = compiler_emit_stmt(compiler, body);
     compiler->loop = loop->prev;
     return ok;
@@ -469,6 +509,26 @@ static void compiler_patch_loop_exits(Compiler *compiler, LoopContext *loop, int
 static bool compiler_emit_while(Compiler *compiler, ASTNode *node) {
     LoopContext loop = {.continue_target = -1};
     loop.defer_depth_at_entry = compiler->defer_depth;
+
+    LocalEntry *str_append_entry = NULL;
+    ASTNode *pattern_check = node->data.while_block.body;
+    if (pattern_check != NULL && pattern_check->type == AST_BLOCK && pattern_check->data.block.count == 1) {
+        pattern_check = pattern_check->data.block.items[0];
+    }
+    int enable_builder = 0;
+    if (pattern_check != NULL && pattern_check->type == AST_ASSIGN && compiler_is_string_append_pattern(pattern_check, &str_append_entry, compiler)) {
+        ASTNode *rhs = pattern_check->data.assign.value;
+        if (rhs && rhs->type == AST_BINOP && rhs->data.binop.right && rhs->data.binop.right->type == AST_STRING) {
+            enable_builder = 1;
+        }
+    }
+    if (enable_builder) {
+        loop.builder_active = 1;
+        loop.builder_slot = (uint8_t)str_append_entry->slot;
+        chunk_write_byte(compiler->chunk, OP_BUILDER_START_LOCAL);
+        chunk_write_byte(compiler->chunk, (uint8_t)str_append_entry->slot);
+    }
+
     const int loop_start = compiler->chunk->count;
 
     int exit_jump = -1;
@@ -502,6 +562,12 @@ static bool compiler_emit_while(Compiler *compiler, ASTNode *node) {
 
     chunk_emit_loop(compiler->chunk, loop_start);
     chunk_patch_jump(compiler->chunk, exit_jump);
+
+    if (loop.builder_active) {
+        chunk_write_byte(compiler->chunk, OP_BUILDER_FINISH_LOCAL);
+        chunk_write_byte(compiler->chunk, (uint8_t)loop.builder_slot);
+    }
+
     compiler_patch_loop_exits(compiler, &loop, compiler->chunk->count);
     return true;
 }
@@ -544,6 +610,26 @@ static bool compiler_emit_repeat(Compiler *compiler, ASTNode *node) {
 
     LoopContext loop = {.continue_target = -1};
     loop.defer_depth_at_entry = compiler->defer_depth;
+
+    LocalEntry *str_append_entry = NULL;
+    ASTNode *pattern_check = node->data.repeat_stmt.body;
+    if (pattern_check != NULL && pattern_check->type == AST_BLOCK && pattern_check->data.block.count == 1) {
+        pattern_check = pattern_check->data.block.items[0];
+    }
+    int enable_builder = 0;
+    if (pattern_check != NULL && pattern_check->type == AST_ASSIGN && compiler_is_string_append_pattern(pattern_check, &str_append_entry, compiler)) {
+        ASTNode *rhs = pattern_check->data.assign.value;
+        if (rhs && rhs->type == AST_BINOP && rhs->data.binop.right && rhs->data.binop.right->type == AST_STRING) {
+            enable_builder = 1;
+        }
+    }
+    if (enable_builder) {
+        loop.builder_active = 1;
+        loop.builder_slot = (uint8_t)str_append_entry->slot;
+        chunk_write_byte(compiler->chunk, OP_BUILDER_START_LOCAL);
+        chunk_write_byte(compiler->chunk, (uint8_t)str_append_entry->slot);
+    }
+
     const int loop_start = compiler->chunk->count;
     chunk_write_byte(compiler->chunk, use_local_slots ? OP_GET_LOCAL : OP_GET_GLOBAL);
     if (use_local_slots) {
@@ -597,6 +683,12 @@ static bool compiler_emit_repeat(Compiler *compiler, ASTNode *node) {
 
     chunk_emit_loop(compiler->chunk, loop_start);
     chunk_patch_jump(compiler->chunk, exit_jump);
+
+    if (loop.builder_active) {
+        chunk_write_byte(compiler->chunk, OP_BUILDER_FINISH_LOCAL);
+        chunk_write_byte(compiler->chunk, (uint8_t)loop.builder_slot);
+    }
+
     compiler_patch_loop_exits(compiler, &loop, compiler->chunk->count);
     return true;
 }
@@ -685,6 +777,26 @@ static bool compiler_emit_for(Compiler *compiler, ASTNode *node) {
 
     LoopContext loop = {.continue_target = -1};
     loop.defer_depth_at_entry = compiler->defer_depth;
+
+    LocalEntry *str_append_entry = NULL;
+    ASTNode *pattern_check = node->data.for_block.body;
+    if (pattern_check != NULL && pattern_check->type == AST_BLOCK && pattern_check->data.block.count == 1) {
+        pattern_check = pattern_check->data.block.items[0];
+    }
+    int enable_builder = 0;
+    if (pattern_check != NULL && pattern_check->type == AST_ASSIGN && compiler_is_string_append_pattern(pattern_check, &str_append_entry, compiler)) {
+        ASTNode *rhs = pattern_check->data.assign.value;
+        if (rhs && rhs->type == AST_BINOP && rhs->data.binop.right && rhs->data.binop.right->type == AST_STRING) {
+            enable_builder = 1;
+        }
+    }
+    if (enable_builder) {
+        loop.builder_active = 1;
+        loop.builder_slot = (uint8_t)str_append_entry->slot;
+        chunk_write_byte(compiler->chunk, OP_BUILDER_START_LOCAL);
+        chunk_write_byte(compiler->chunk, (uint8_t)str_append_entry->slot);
+    }
+
     const int loop_start = compiler->chunk->count;
 
     int exit_jump = -1;
@@ -724,6 +836,12 @@ static bool compiler_emit_for(Compiler *compiler, ASTNode *node) {
     if (exit_jump >= 0) {
         chunk_patch_jump(compiler->chunk, exit_jump);
     }
+
+    if (loop.builder_active) {
+        chunk_write_byte(compiler->chunk, OP_BUILDER_FINISH_LOCAL);
+        chunk_write_byte(compiler->chunk, (uint8_t)loop.builder_slot);
+    }
+
     compiler_patch_loop_exits(compiler, &loop, compiler->chunk->count);
     compiler->local_count = scoped_local_base;
     compiler->env_scope_depth--;
@@ -774,6 +892,38 @@ static bool compiler_emit_stmt(Compiler *compiler, ASTNode *node) {
             if (compiler_is_inc_local_pattern(node, &inc_entry, compiler)) {
                 chunk_write_byte(compiler->chunk, OP_INC_LOCAL);
                 chunk_write_byte(compiler->chunk, (uint8_t)inc_entry->slot);
+                return true;
+            }
+
+            LocalEntry *str_append_entry = NULL;
+            if (compiler->loop != NULL && compiler->loop->builder_active && compiler_is_string_append_pattern(node, &str_append_entry, compiler)) {
+                uint8_t slot = (uint8_t)str_append_entry->slot;
+
+                ASTNode *right = node->data.assign.value->data.binop.right;
+
+                if (right->type == AST_STRING) {
+                    int const_idx = chunk_add_constant(compiler->chunk, make_string_raw(right->data.string_value));
+                    chunk_write_byte(compiler->chunk, OP_BUILDER_APPEND_LOCAL_CONST);
+                    chunk_write_byte(compiler->chunk, slot);
+                    chunk_write_u16(compiler->chunk, (uint16_t)const_idx);
+                } else {
+                    if (!compiler_emit_expr(compiler, right)) {
+                        return false;
+                    }
+                    uint8_t value_slot = VM_MAX_LOCALS;
+                    if (compiler_can_alloc_local(compiler)) {
+                        value_slot = compiler->next_local_slot++;
+                        chunk_write_byte(compiler->chunk, OP_SET_LOCAL);
+                        chunk_write_byte(compiler->chunk, value_slot);
+                    }
+                    if (value_slot < VM_MAX_LOCALS) {
+                        chunk_write_byte(compiler->chunk, OP_BUILDER_APPEND_LOCAL_VALUE);
+                        chunk_write_byte(compiler->chunk, slot);
+                        chunk_write_byte(compiler->chunk, value_slot);
+                    } else {
+                        return false;
+                    }
+                }
                 return true;
             }
 
