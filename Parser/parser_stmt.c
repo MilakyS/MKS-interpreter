@@ -27,6 +27,20 @@ static ASTNode* parser_parse_continue(Parser *parser);
 static ASTNode* parser_parse_repeat(Parser *parser);
 static ASTNode* parser_parse_switch(Parser *parser);
 
+static int parser_current_col(Parser *parser) {
+    const char *start = parser->current_token.start;
+    if (start == NULL || parser->lexer == NULL || parser->lexer->source == NULL) {
+        return 1;
+    }
+
+    const char *p = start;
+    while (p > parser->lexer->source && p[-1] != '\n') {
+        p--;
+    }
+
+    return (int)(start - p) + 1;
+}
+
 ASTNode* parser_parse_statement(Parser *parser) {
     const enum TokenType type = parser->current_token.type;
 
@@ -110,24 +124,27 @@ ASTNode* parser_parse_statement(Parser *parser) {
 
 static ASTNode* parser_parse_break(Parser *parser) {
     const int line = parser->current_token.line;
+    const int col = parser_current_col(parser);
     parser_eat(parser, TOKEN_KW_BREAK);
     if (parser->current_token.type == TOKEN_SEMICOLON) {
         parser_eat(parser, TOKEN_SEMICOLON);
     }
-    return create_ast_break(line);
+    return create_ast_break(line, col);
 }
 
 static ASTNode* parser_parse_continue(Parser *parser) {
     const int line = parser->current_token.line;
+    const int col = parser_current_col(parser);
     parser_eat(parser, TOKEN_KW_CONTINUE);
     if (parser->current_token.type == TOKEN_SEMICOLON) {
         parser_eat(parser, TOKEN_SEMICOLON);
     }
-    return create_ast_continue(line);
+    return create_ast_continue(line, col);
 }
 
 static ASTNode* parser_parse_repeat(Parser *parser) {
     const int line = parser->current_token.line;
+    const int col = parser_current_col(parser);
     parser_eat(parser, TOKEN_KW_REPEAT);
 
     bool has_iter = false;
@@ -144,18 +161,20 @@ static ASTNode* parser_parse_repeat(Parser *parser) {
 
     count_expr = parser_parse_expression(parser);
     ASTNode *body = parser_parse_block(parser);
-    return create_ast_repeat(has_iter, iter_name, iter_hash, count_expr, body, line);
+    return create_ast_repeat(has_iter, iter_name, iter_hash, count_expr, body, line, col);
 }
 
 static ASTNode* parser_parse_defer(Parser *parser) {
     const int line = parser->current_token.line;
+    const int col = parser_current_col(parser);
     parser_eat(parser, TOKEN_KW_DEFER);
     ASTNode *body = parser_parse_block(parser);
-    return create_ast_defer(body, line);
+    return create_ast_defer(body, line, col);
 }
 
 static ASTNode* parser_parse_switch(Parser *parser) {
     const int line = parser->current_token.line;
+    const int col = parser_current_col(parser);
     ASTNode **case_values = NULL;
     ASTNode **case_bodies = NULL;
     int case_count = 0;
@@ -198,31 +217,34 @@ static ASTNode* parser_parse_switch(Parser *parser) {
     }
 
     parser_eat(parser, TOKEN_BLOCK_END);
-    return create_ast_switch(value, case_values, case_bodies, case_count, default_body, line);
+    return create_ast_switch(value, case_values, case_bodies, case_count, default_body, line, col);
 }
 
 static ASTNode* parser_parse_watch(Parser *parser) {
     const int line = parser->current_token.line;
+    const int col = parser_current_col(parser);
     parser_eat(parser, TOKEN_KW_WATCH);
 
     unsigned int h = 0;
     char *name = parser_take_identifier(parser, &h);
     parser_eat(parser, TOKEN_SEMICOLON);
-    return create_ast_watch(name, h, line);
+    return create_ast_watch(name, h, line, col);
 }
 
 static ASTNode* parser_parse_on_change(Parser *parser) {
     const int line = parser->current_token.line;
+    const int col = parser_current_col(parser);
     parser_eat(parser, TOKEN_KW_ON);
     parser_eat(parser, TOKEN_KW_CHANGE);
     unsigned int h = 0;
     char *name = parser_take_identifier(parser, &h);
     ASTNode *body = parser_parse_block(parser);
-    return create_ast_on_change(name, h, body, line);
+    return create_ast_on_change(name, h, body, line, col);
 }
 
 ASTNode* parser_parse_block(Parser *parser) {
     const int line = parser->current_token.line;
+    const int col = parser_current_col(parser);
     ASTNode **items = NULL;
     int count = 0;
     int cap = 0;
@@ -235,7 +257,7 @@ ASTNode* parser_parse_block(Parser *parser) {
     }
 
     parser_eat(parser, TOKEN_BLOCK_END);
-    return create_ast_block(items, count, line);
+    return create_ast_block(items, count, line, col);
 }
 
 ASTNode* parser_parse_program(Parser *parser) {
@@ -247,7 +269,7 @@ ASTNode* parser_parse_program(Parser *parser) {
         parser_push_ast(&items, &count, &cap, parser_parse_statement(parser));
     }
 
-    return create_ast_block(items, count, 1);
+    return create_ast_block(items, count, 1, 1);
 }
 
 static ASTNode* parser_parse_using(Parser *parser) {
@@ -306,7 +328,7 @@ static ASTNode* parser_parse_using(Parser *parser) {
     }
 
     parser_eat(parser, TOKEN_SEMICOLON);
-    return create_ast_using(module_id, alias, is_legacy, star, line);
+    return create_ast_using(module_id, alias, is_legacy, star, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_export(Parser *parser) {
@@ -326,7 +348,7 @@ static ASTNode* parser_parse_export(Parser *parser) {
         parser_error(parser, "Expected fnc/var/entity after export");
     }
 
-    return create_ast_export(decl, name_override, line);
+    return create_ast_export(decl, name_override, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_var_decl(Parser *parser) {
@@ -340,7 +362,7 @@ static ASTNode* parser_parse_var_decl(Parser *parser) {
     ASTNode *value = parser_parse_expression(parser);
     parser_eat(parser, TOKEN_SEMICOLON);
 
-    return create_ast_var_decl(value, line, name, name_hash);
+    return create_ast_var_decl(value, line, parser_current_col(parser), name, name_hash);
 }
 
 static ASTNode* parser_parse_method(Parser *parser) {
@@ -372,7 +394,7 @@ static ASTNode* parser_parse_method(Parser *parser) {
 
     ASTNode *body = parser_parse_block(parser);
 
-    return create_ast_func_decl(name, name_hash, params, param_hashes, param_count, body, line);
+    return create_ast_func_decl(name, name_hash, params, param_hashes, param_count, body, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_entity(Parser *parser) {
@@ -419,7 +441,7 @@ static ASTNode* parser_parse_entity(Parser *parser) {
 
     parser_eat(parser, TOKEN_BLOCK_END);
 
-    return create_ast_entity(name, name_hash, params, param_hashes, param_count, init_body, methods, method_count, line);
+    return create_ast_entity(name, name_hash, params, param_hashes, param_count, init_body, methods, method_count, line, parser_current_col(parser));
 }
 
 static int parse_extend_target(Parser *parser) {
@@ -453,7 +475,7 @@ static ASTNode* parser_parse_extend(Parser *parser) {
     }
 
     parser_eat(parser, TOKEN_BLOCK_END);
-    return create_ast_extend(target, methods, mc, line);
+    return create_ast_extend(target, methods, mc, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_test(Parser *parser) {
@@ -467,7 +489,7 @@ static ASTNode* parser_parse_test(Parser *parser) {
     parser_eat(parser, TOKEN_TYPE_STRING);
 
     ASTNode *body = parser_parse_block(parser);
-    return create_ast_test(name, body, line);
+    return create_ast_test(name, body, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_if(Parser *parser) {
@@ -493,7 +515,7 @@ static ASTNode* parser_parse_if(Parser *parser) {
         }
     }
 
-    return create_if_block(condition, body, else_body, line);
+    return create_if_block(condition, body, else_body, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_while(Parser *parser) {
@@ -507,7 +529,7 @@ static ASTNode* parser_parse_while(Parser *parser) {
     parser_eat(parser, TOKEN_RPAREL);
 
     ASTNode *body = parser_parse_block(parser);
-    return create_while_block(condition, body, line);
+    return create_while_block(condition, body, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_for(Parser *parser) {
@@ -531,7 +553,7 @@ static ASTNode* parser_parse_for(Parser *parser) {
             parser_eat(parser, TOKEN_ASSIGN);
             ASTNode *v_value = parser_parse_expression(parser);
 
-            init = create_ast_var_decl(v_value, v_line, v_name, v_hash);
+            init = create_ast_var_decl(v_value, v_line, parser_current_col(parser), v_name, v_hash);
         } else {
             init = parser_parse_expression(parser);
         }
@@ -549,7 +571,7 @@ static ASTNode* parser_parse_for(Parser *parser) {
     parser_eat(parser, TOKEN_RPAREL);
 
     ASTNode *body = parser_parse_block(parser);
-    return create_ast_for(init, condition, step, body, line);
+    return create_ast_for(init, condition, step, body, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_output(Parser *parser, bool newline) {
@@ -575,7 +597,7 @@ static ASTNode* parser_parse_output(Parser *parser, bool newline) {
     parser_eat(parser, TOKEN_RPAREL);
     parser_eat(parser, TOKEN_SEMICOLON);
 
-    return create_ast_output(args, count, newline, line);
+    return create_ast_output(args, count, newline, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_func_decl(Parser *parser) {
@@ -630,7 +652,7 @@ static ASTNode* parser_parse_func_decl(Parser *parser) {
     parser_eat(parser, TOKEN_RPAREL);
 
     ASTNode *body = parser_parse_block(parser);
-    return create_ast_func_decl(func_name, func_hash, params, param_hashes, param_count, body, line);
+    return create_ast_func_decl(func_name, func_hash, params, param_hashes, param_count, body, line, parser_current_col(parser));
 }
 
 static ASTNode* parser_parse_return(Parser *parser) {
@@ -640,5 +662,5 @@ static ASTNode* parser_parse_return(Parser *parser) {
     ASTNode *value = parser_parse_expression(parser);
     parser_eat(parser, TOKEN_SEMICOLON);
 
-    return create_ast_return(value, line);
+    return create_ast_return(value, line, parser_current_col(parser));
 }

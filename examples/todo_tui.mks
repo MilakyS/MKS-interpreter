@@ -1,0 +1,324 @@
+using std.tty as tty;
+using std.fs as fs;
+
+fnc load_tasks(filename) ->
+    var content =: fs.read(filename);
+    if (content ?= null) ->
+        return [];
+    <-
+
+    var lines =: content.split("\n");
+    var tasks =: [];
+    var i =: 0;
+    while (i < lines.len()) ->
+        var line =: lines[i];
+        if (line.len() > 0) ->
+            var parts =: line.split("|");
+            if (parts.len() ?= 2) ->
+                var done =: parts[0] ?= "1";
+                var text =: parts[1];
+                tasks.inject([done, text]);
+            <-
+        <-
+        i =: i + 1;
+    <-
+
+    return tasks;
+<-
+
+fnc bool_to_str(val) ->
+    if (val) -> return "1"; <- else -> return "0"; <-
+<-
+
+fnc save_tasks(filename, tasks) ->
+    var lines =: [];
+    var i =: 0;
+    while (i < tasks.len()) ->
+        var task =: tasks[i];
+        var done =: bool_to_str(task[0]);
+        var line =: done + "|" + task[1];
+        lines.inject(line);
+        i =: i + 1;
+    <-
+
+    var content =: lines.join("\n");
+    fs.write(filename, content);
+<-
+
+fnc str_remove_last(s) ->
+    var len =: s.len();
+    if (len <= 1) -> return ""; <-
+    var result =: "";
+    var i =: 0;
+    while (i < len - 1) ->
+        result =: result + s[i];
+        i =: i + 1;
+    <-
+    return result;
+<-
+
+fnc draw_ui(tasks, selected, mode, search_term, width, height) ->
+    tty.clear();
+
+    var title =: "MKS ToDo";
+    if ((search_term ?= "") ?= false) ->
+        title =: title + " (search: " + search_term + ")";
+    <-
+
+    var title_line =: " " + title;
+    var title_fill =: width - 1;
+    while (title_fill > 0) ->
+        title_line =: title_line + " ";
+        title_fill =: title_fill - 1;
+    <-
+    tty.write("\x1b[7m" + title_line + "\x1b[0m");
+    tty.write("\n");
+
+    if (tasks.len() ?= 0) ->
+        tty.write("  (no tasks)\n\n");
+        tty.write("Commands: a=add, q=quit\n");
+        return null;
+    <-
+
+    var visible_tasks =: tasks;
+    if ((search_term ?= "") ?= false) ->
+        var filtered =: [];
+        var i =: 0;
+        while (i < tasks.len()) ->
+            if (tasks[i][1].contains(search_term)) ->
+                filtered.inject(tasks[i]);
+            <-
+            i =: i + 1;
+        <-
+        visible_tasks =: filtered;
+    <-
+
+    var task_display_height =: height - 5;
+    var i =: 0;
+    while (i < visible_tasks.len() && i < task_display_height) ->
+        var task =: visible_tasks[i];
+        var marker =: "[ ]";
+        if (task[0]) ->
+            marker =: "✓";
+        <-
+
+        var line =: "  " + marker + " " + task[1];
+
+        if (i ?= selected) ->
+            line =: "> " + marker + " " + task[1];
+            tty.write("\x1b[7m");
+        <- else ->
+            line =: "  " + marker + " " + task[1];
+        <-
+
+        var line_fill =: width - 1;
+        while (line_fill > 0) ->
+            line =: line + " ";
+            line_fill =: line_fill - 1;
+        <-
+
+        tty.write(line);
+        tty.write("\x1b[0m\n");
+
+        i =: i + 1;
+    <-
+
+    while (i < task_display_height) ->
+        tty.write("\n");
+        i =: i + 1;
+    <-
+
+    var status =: "j/k=nav | a=add | e=edit | d=delete | space=toggle | /=search | q=quit";
+    if (mode ?= "search") ->
+        status =: "Search mode (Esc to cancel)";
+    <-
+    if (mode ?= "edit") ->
+        status =: "Edit mode (Enter to save, Esc to cancel)";
+    <-
+    if (mode ?= "add") ->
+        status =: "Add mode (Enter to save, Esc to cancel)";
+    <-
+
+    var status_fill =: width - 1;
+    while (status_fill > 0) ->
+        status =: status + " ";
+        status_fill =: status_fill - 1;
+    <-
+
+    tty.write("\x1b[7m" + status + "\x1b[0m");
+<-
+
+fnc show_help(width, height) ->
+    tty.clear();
+
+    tty.write("\x1b[1mMKS ToDo - Help\x1b[0m\n");
+    tty.write("\n");
+    tty.write("Navigation:\n");
+    tty.write("  j / Down    - move cursor down\n");
+    tty.write("  k / Up      - move cursor up\n");
+    tty.write("\n");
+    tty.write("Tasks:\n");
+    tty.write("  a           - add new task\n");
+    tty.write("  e           - edit selected task\n");
+    tty.write("  d           - delete selected task\n");
+    tty.write("  Space       - toggle task done/undone\n");
+    tty.write("\n");
+    tty.write("Other:\n");
+    tty.write("  /           - search tasks\n");
+    tty.write("  s           - save to file\n");
+    tty.write("  ?           - show this help\n");
+    tty.write("  q           - quit\n");
+    tty.write("\n");
+    tty.write("Press Enter to continue...\n");
+<-
+
+
+fnc main() ->
+    var filename =: "tasks.txt";
+    var tasks =: load_tasks(filename);
+    var selected =: 0;
+    var mode =: "normal";
+    var search_term =: "";
+    var edit_text =: "";
+    var edit_index =: -1;
+
+    if (tty.is_tty() ?= false) ->
+        Writeln("This is a TUI app and requires a terminal.");
+        return null;
+    <-
+
+    tty.set_raw(1);
+    tty.hide_cursor();
+
+    defer ->
+        tty.show_cursor();
+        tty.set_raw(0);
+        tty.clear();
+    <-
+
+    var running =: true;
+    while (running) ->
+        var size =: tty.size_or(80, 24);
+        var width =: size.w;
+        var height =: size.h;
+
+        if (mode ?= "help") ->
+            show_help(width, height);
+            var key =: tty.read_key_timeout(100);
+            if ((key ?= null) ?= false) ->
+                mode =: "normal";
+            <-
+        <- else ->
+            draw_ui(tasks, selected, mode, search_term, width, height);
+
+            var key =: tty.read_key_timeout(100);
+            if (key ?= null) -> continue; <-
+
+            if (mode ?= "search") ->
+                if (key ?= "\x1b") ->
+                    mode =: "normal";
+                    search_term =: "";
+                <- else if (key ?= "backspace") ->
+                    search_term =: str_remove_last(search_term);
+                <- else if (key ?= "enter") ->
+                    mode =: "normal";
+                <- else if (key.len() ?= 1) ->
+                    search_term =: search_term + key;
+                <-
+            <- else if (mode ?= "add") ->
+                if (key ?= "\x1b") ->
+                    mode =: "normal";
+                    edit_text =: "";
+                <- else if (key ?= "enter") ->
+                    if ((edit_text ?= "") ?= false) ->
+                        tasks.inject([false, edit_text]);
+                        save_tasks(filename, tasks);
+                    <-
+                    mode =: "normal";
+                    edit_text =: "";
+                    selected =: tasks.len() - 1;
+                <- else if (key ?= "backspace") ->
+                    edit_text =: str_remove_last(edit_text);
+                <- else if (key.len() ?= 1) ->
+                    edit_text =: edit_text + key;
+                <-
+            <- else if (mode ?= "edit") ->
+                if (key ?= "\x1b") ->
+                    mode =: "normal";
+                    edit_text =: "";
+                    edit_index =: -1;
+                <- else if (key ?= "enter") ->
+                    if ((edit_text ?= "") ?= false && edit_index >= 0 && edit_index < tasks.len()) ->
+                        tasks[edit_index][1] =: edit_text;
+                        save_tasks(filename, tasks);
+                    <-
+                    mode =: "normal";
+                    edit_text =: "";
+                    edit_index =: -1;
+                <- else if (key ?= "backspace") ->
+                    edit_text =: str_remove_last(edit_text);
+                <- else if (key.len() ?= 1) ->
+                    edit_text =: edit_text + key;
+                <-
+            <- else ->
+                if (key ?= "j" || key ?= "down") ->
+                    if (tasks.len() > 0) ->
+                        selected =: selected + 1;
+                        if (selected >= tasks.len()) ->
+                            selected =: tasks.len() - 1;
+                        <-
+                    <-
+                <- else if (key ?= "k" || key ?= "up") ->
+                    if (tasks.len() > 0) ->
+                        selected =: selected - 1;
+                        if (selected < 0) ->
+                            selected =: 0;
+                        <-
+                    <-
+                <- else if (key ?= "a") ->
+                    mode =: "add";
+                    edit_text =: "";
+                <- else if (key ?= "d") ->
+                    if (selected >= 0 && selected < tasks.len()) ->
+                        var new_tasks =: [];
+                        var i =: 0;
+                        while (i < tasks.len()) ->
+                            if (i ?= selected) ->
+                                // Skip the deleted task
+                            <- else ->
+                                new_tasks.inject(tasks[i]);
+                            <-
+                            i =: i + 1;
+                        <-
+                        tasks =: new_tasks;
+                        save_tasks(filename, tasks);
+                        if (selected >= tasks.len() && tasks.len() > 0) ->
+                            selected =: tasks.len() - 1;
+                        <-
+                    <-
+                <- else if (key ?= "e") ->
+                    if (selected >= 0 && selected < tasks.len()) ->
+                        mode =: "edit";
+                        edit_text =: tasks[selected][1];
+                        edit_index =: selected;
+                    <-
+                <- else if (key ?= " ") ->
+                    if (selected >= 0 && selected < tasks.len()) ->
+                        var done =: tasks[selected][0];
+                        tasks[selected][0] =: (done ?= false);
+                        save_tasks(filename, tasks);
+                    <-
+                <- else if (key ?= "/") ->
+                    mode =: "search";
+                    search_term =: "";
+                <- else if (key ?= "s") ->
+                    save_tasks(filename, tasks);
+                <- else if (key ?= "?") ->
+                    mode =: "help";
+                <- else if (key ?= "q") ->
+                    running =: false;
+                <-
+            <-
+        <-
+    <-
+<-

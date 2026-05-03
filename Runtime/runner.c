@@ -345,7 +345,7 @@ Environment *mks_create_global_env(MKSContext *ctx) {
     return env;
 }
 
-int mks_run_source(MKSContext *ctx, const char *name, const char *source, const int call_main, const int profile) {
+int mks_run_source(MKSContext *ctx, const char *name, const char *source, const int call_main, ProfileLevel profile) {
     MKSContext *previous = mks_context_current();
     mks_context_set_current(ctx);
 
@@ -383,8 +383,8 @@ int mks_run_source(MKSContext *ctx, const char *name, const char *source, const 
     Environment *env = mks_create_global_env(ctx);
     ASTNode *program = parser_parse_program(&parser);
 
-    if (profile) {
-        profiler_enable();
+    if (profile != PROFILE_DISABLED) {
+        profiler_enable(profile);
     }
     if (program != NULL) {
         const int use_vm_only = ctx->vm_mode == MKS_VM_FORCE;
@@ -431,7 +431,7 @@ int mks_run_source(MKSContext *ctx, const char *name, const char *source, const 
     return 0;
 }
 
-int mks_run_file(MKSContext *ctx, const char *path, const int call_main, const int profile) {
+int mks_run_file(MKSContext *ctx, const char *path, const int call_main, ProfileLevel profile) {
     char *source = mks_read_file(path);
     if (source == NULL) {
         return 1;

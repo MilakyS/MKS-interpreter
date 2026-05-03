@@ -97,6 +97,9 @@ void chunk_init(Chunk *chunk) {
     chunk->ast_ref_capacity = 0;
 
     chunk->debug_name = "<chunk>";
+
+    chunk->slot_predictions = NULL;
+    chunk->slot_predict_count = 0;
 }
 
 void chunk_free(Chunk *chunk) {
@@ -113,6 +116,7 @@ void chunk_free(Chunk *chunk) {
     free(chunk->ast_refs);
     free(chunk->constants);
     free(chunk->code);
+    free(chunk->slot_predictions);
 
     chunk_init(chunk);
 }

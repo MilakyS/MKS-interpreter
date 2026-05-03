@@ -13,6 +13,20 @@ static ASTNode* parser_parse_unary(Parser *parser);
 static ASTNode* parser_parse_primary(Parser *parser);
 static ASTNode* parser_parse_postfix(Parser *parser, ASTNode *node);
 
+static int parser_current_col(Parser *parser) {
+    const char *start = parser->current_token.start;
+    if (start == NULL || parser->lexer == NULL || parser->lexer->source == NULL) {
+        return 1;
+    }
+
+    const char *p = start;
+    while (p > parser->lexer->source && p[-1] != '\n') {
+        p--;
+    }
+
+    return (int)(start - p) + 1;
+}
+
 ASTNode* parser_parse_expression(Parser *parser) {
     return parser_parse_assignment(parser);
 }
@@ -22,13 +36,14 @@ static ASTNode* parser_parse_assignment(Parser *parser) {
 
     if (parser->current_token.type == TOKEN_ASSIGN || parser->current_token.type == TOKEN_SWAP) {
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         int is_swap = (parser->current_token.type == TOKEN_SWAP);
         parser_eat(parser, parser->current_token.type);
 
         ASTNode *rhs = parser_parse_assignment(parser);
 
         if (is_swap) {
-            return create_ast_swap(node, rhs, line);
+            return create_ast_swap(node, rhs, line, col);
         }
 
         if (node->type == AST_IDENTIFIER) {
@@ -36,7 +51,8 @@ static ASTNode* parser_parse_assignment(Parser *parser) {
                 node->data.identifier.name,
                 node->data.identifier.id_hash,
                 rhs,
-                line
+                line,
+                col
             );
 
             free(node);
@@ -44,13 +60,13 @@ static ASTNode* parser_parse_assignment(Parser *parser) {
         }
 
         if (node->type == AST_INDEX) {
-            return create_ast_index_assign(node, rhs, line);
+            return create_ast_index_assign(node, rhs, line, col);
         }
 
         if (node->type == AST_DEREF) {
             ASTNode *target = node->data.deref.target;
             free(node);
-            return create_ast_deref_assign(target, rhs, line);
+            return create_ast_deref_assign(target, rhs, line, col);
         }
 
         if (node->type == AST_OBJ_GET) {
@@ -58,7 +74,8 @@ static ASTNode* parser_parse_assignment(Parser *parser) {
                                       node->data.obj_get.field,
                                       node->data.obj_get.field_hash,
                                       rhs,
-                                      line);
+                                      line,
+                                      col);
         }
 
         parser_error(parser, "Invalid assignment target");
@@ -73,8 +90,9 @@ static ASTNode* parser_parse_logical_or(Parser *parser) {
     while (parser->current_token.type == TOKEN_OR) {
         const int op = parser->current_token.type;
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_OR);
-        node = create_ast_binop(node, parser_parse_logical_and(parser), op, line);
+        node = create_ast_binop(node, parser_parse_logical_and(parser), op, line, col);
     }
 
     return node;
@@ -86,8 +104,9 @@ static ASTNode* parser_parse_logical_and(Parser *parser) {
     while (parser->current_token.type == TOKEN_AND) {
         const int op = parser->current_token.type;
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_AND);
-        node = create_ast_binop(node, parser_parse_comparison(parser), op, line);
+        node = create_ast_binop(node, parser_parse_comparison(parser), op, line, col);
     }
 
     return node;
@@ -103,8 +122,9 @@ static ASTNode* parser_parse_comparison(Parser *parser) {
 
         const int op = parser->current_token.type;
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, op);
-        node = create_ast_binop(node, parser_parse_equality(parser), op, line);
+        node = create_ast_binop(node, parser_parse_equality(parser), op, line, col);
     }
 
     return node;
@@ -118,8 +138,9 @@ static ASTNode* parser_parse_equality(Parser *parser) {
 
         const int op = parser->current_token.type;
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, op);
-        node = create_ast_binop(node, parser_parse_math(parser), op, line);
+        node = create_ast_binop(node, parser_parse_math(parser), op, line, col);
     }
 
     return node;
@@ -133,8 +154,9 @@ static ASTNode* parser_parse_math(Parser *parser) {
 
         const int op = parser->current_token.type;
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, op);
-        node = create_ast_binop(node, parser_parse_term(parser), op, line);
+        node = create_ast_binop(node, parser_parse_term(parser), op, line, col);
     }
 
     return node;
@@ -149,8 +171,9 @@ static ASTNode* parser_parse_term(Parser *parser) {
 
         const int op = parser->current_token.type;
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, op);
-        node = create_ast_binop(node, parser_parse_unary(parser), op, line);
+        node = create_ast_binop(node, parser_parse_unary(parser), op, line, col);
     }
 
     return node;
@@ -159,10 +182,11 @@ static ASTNode* parser_parse_term(Parser *parser) {
 static ASTNode* parser_parse_unary(Parser *parser) {
     if (parser->current_token.type == TOKEN_MINUS) {
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_MINUS);
         ASTNode *right = parser_parse_unary(parser);
-        ASTNode *zero = create_ast_num(0, line);
-        return create_ast_binop(zero, right, TOKEN_MINUS, line);
+        ASTNode *zero = create_ast_num(0, line, col);
+        return create_ast_binop(zero, right, TOKEN_MINUS, line, col);
     }
 
     if (parser->current_token.type == TOKEN_PLUS) {
@@ -172,14 +196,16 @@ static ASTNode* parser_parse_unary(Parser *parser) {
 
     if (parser->current_token.type == TOKEN_AMPERSAND) {
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_AMPERSAND);
-        return create_ast_address_of(parser_parse_unary(parser), line);
+        return create_ast_address_of(parser_parse_unary(parser), line, col);
     }
 
     if (parser->current_token.type == TOKEN_STAR) {
         const int line = parser->current_token.line;
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_STAR);
-        return create_ast_deref(parser_parse_unary(parser), line);
+        return create_ast_deref(parser_parse_unary(parser), line, col);
     }
 
     return parser_parse_primary(parser);
@@ -193,10 +219,11 @@ static ASTNode* parser_parse_primary(Parser *parser) {
         const int is_float = parser->current_token.is_float;
         const int64_t int_value = parser->current_token.int_value;
         const double float_value = parser->current_token.double_value;
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_TYPE_NUMBER);
         node = is_float
-            ? create_ast_float(float_value, line)
-            : create_ast_int(int_value, line);
+            ? create_ast_float(float_value, line, col)
+            : create_ast_int(int_value, line, col);
         return parser_parse_postfix(parser, node);
     }
 
@@ -205,26 +232,30 @@ static ASTNode* parser_parse_primary(Parser *parser) {
             parser->current_token.start,
             (size_t)parser->current_token.length
         );
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_TYPE_STRING);
-        node = create_ast_string(str, line);
+        node = create_ast_string(str, line, col);
         return parser_parse_postfix(parser, node);
     }
 
     if (parser->current_token.type == TOKEN_KW_NULL) {
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_KW_NULL);
-        node = create_ast_null(line);
+        node = create_ast_null(line, col);
         return parser_parse_postfix(parser, node);
     }
 
     if (parser->current_token.type == TOKEN_KW_TRUE) {
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_KW_TRUE);
-        node = create_ast_bool(true, line);
+        node = create_ast_bool(true, line, col);
         return parser_parse_postfix(parser, node);
     }
 
     if (parser->current_token.type == TOKEN_KW_FALSE) {
+        const int col = parser_current_col(parser);
         parser_eat(parser, TOKEN_KW_FALSE);
-        node = create_ast_bool(false, line);
+        node = create_ast_bool(false, line, col);
         return parser_parse_postfix(parser, node);
     }
 
@@ -236,6 +267,7 @@ static ASTNode* parser_parse_primary(Parser *parser) {
             ASTNode **args = NULL;
             int arg_count = 0;
             int arg_cap = 0;
+            const int col = parser_current_col(parser);
 
             parser_eat(parser, TOKEN_LPAREL);
 
@@ -247,9 +279,9 @@ static ASTNode* parser_parse_primary(Parser *parser) {
             }
 
             parser_eat(parser, TOKEN_RPAREL);
-            node = create_ast_func_call(name, name_hash, args, arg_count, line);
+            node = create_ast_func_call(name, name_hash, args, arg_count, line, col);
         } else {
-            node = create_ast_ident(name, name_hash, line);
+            node = create_ast_ident(name, name_hash, line, parser_current_col(parser));
         }
 
         return parser_parse_postfix(parser, node);
@@ -270,7 +302,7 @@ static ASTNode* parser_parse_primary(Parser *parser) {
         }
 
         parser_eat(parser, TOKEN_RBRACKET);
-        node = create_ast_array(elements, count, line);
+        node = create_ast_array(elements, count, line, parser_current_col(parser));
         return parser_parse_postfix(parser, node);
     }
 
@@ -287,19 +319,39 @@ static ASTNode* parser_parse_primary(Parser *parser) {
 
 static ASTNode* parser_parse_postfix(Parser *parser, ASTNode *node) {
     while (parser->current_token.type == TOKEN_LBRACKET ||
-           parser->current_token.type == TOKEN_DOT) {
+           parser->current_token.type == TOKEN_DOT ||
+           parser->current_token.type == TOKEN_INCREMENT ||
+           parser->current_token.type == TOKEN_DECREMENT) {
 
         if (parser->current_token.type == TOKEN_LBRACKET) {
             const int line = parser->current_token.line;
+            const int col = parser_current_col(parser);
             parser_eat(parser, TOKEN_LBRACKET);
             ASTNode *index_expr = parser_parse_expression(parser);
             parser_eat(parser, TOKEN_RBRACKET);
-            node = create_ast_index(node, index_expr, line);
+            node = create_ast_index(node, index_expr, line, col);
+            continue;
+        }
+
+        if (parser->current_token.type == TOKEN_INCREMENT) {
+            const int line = parser->current_token.line;
+            const int col = parser_current_col(parser);
+            parser_eat(parser, TOKEN_INCREMENT);
+            node = create_ast_inc_op(node, 0, line, col);
+            continue;
+        }
+
+        if (parser->current_token.type == TOKEN_DECREMENT) {
+            const int line = parser->current_token.line;
+            const int col = parser_current_col(parser);
+            parser_eat(parser, TOKEN_DECREMENT);
+            node = create_ast_inc_op(node, 1, line, col);
             continue;
         }
 
         if (parser->current_token.type == TOKEN_DOT) {
             const int line = parser->current_token.line;
+            const int col = parser_current_col(parser);
             parser_eat(parser, TOKEN_DOT);
 
             unsigned int method_hash = 0;
@@ -325,9 +377,9 @@ static ASTNode* parser_parse_postfix(Parser *parser, ASTNode *node) {
             }
 
             if (had_parens) {
-                node = create_ast_method_call(node, method_name, method_hash, args, arg_count, line);
+                node = create_ast_method_call(node, method_name, method_hash, args, arg_count, line, col);
             } else {
-                node = create_ast_obj_get(node, method_name, method_hash, line);
+                node = create_ast_obj_get(node, method_name, method_hash, line, col);
             }
         }
     }

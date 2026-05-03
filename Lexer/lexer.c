@@ -231,6 +231,11 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_error_token(start, 1, line);
 
         case '-':
+            if (next == '-') {
+                advance(lexer);
+                advance(lexer);
+                return make_token(TOKEN_DECREMENT, start, 2, line);
+            }
             if (next == '>') {
                 advance(lexer);
                 advance(lexer);
@@ -307,6 +312,11 @@ struct Token lexer_next(struct Lexer *lexer) {
             return make_error_token(start, 1, line);
 
         case '+':
+            if (next == '+') {
+                advance(lexer);
+                advance(lexer);
+                return make_token(TOKEN_INCREMENT, start, 2, line);
+            }
             advance(lexer);
             return make_token(TOKEN_PLUS, start, 1, line);
 

@@ -1,4 +1,5 @@
 #include "vm.h"
+#include "vm_predict.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -754,12 +755,77 @@ RuntimeValue vm_run(VM *vm) {
             case OP_INC_LOCAL: {
                 const uint8_t slot = vm_read_u8(frame);
                 RuntimeValue *v = &frame->locals[slot];
-                if (v->type == VAL_INT) {
+                if (MKS_LIKELY(v->type == VAL_INT)) {
                     v->data.int_value += 1;
-                } else if (v->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT)) {
                     v->data.float_value += 1.0;
                 } else {
                     runtime_error("OP_INC_LOCAL expects number");
+                }
+                break;
+            }
+
+            case OP_DEC_LOCAL: {
+                const uint8_t slot = vm_read_u8(frame);
+                RuntimeValue *v = &frame->locals[slot];
+                if (MKS_LIKELY(v->type == VAL_INT)) {
+                    v->data.int_value -= 1;
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT)) {
+                    v->data.float_value -= 1.0;
+                } else {
+                    runtime_error("OP_DEC_LOCAL expects number");
+                }
+                break;
+            }
+
+            case OP_INC_LOCAL_AND_LOOP: {
+                const uint8_t slot = vm_read_u8(frame);
+                const uint16_t back = vm_read_u16(frame);
+                RuntimeValue *v = &frame->locals[slot];
+                if (MKS_LIKELY(v->type == VAL_INT)) {
+                    v->data.int_value += 1;
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT)) {
+                    v->data.float_value += 1.0;
+                } else {
+                    runtime_error("OP_INC_LOCAL_AND_LOOP expects number");
+                }
+                frame->ip -= back;
+                break;
+            }
+
+            case OP_INC_LOCAL_AND_JUMP_IF_LT_CONST: {
+                const uint8_t slot = vm_read_u8(frame);
+                const uint16_t const_idx = vm_read_u16(frame);
+                const uint16_t back = vm_read_u16(frame);
+                RuntimeValue *v = &frame->locals[slot];
+                const RuntimeValue *c = &frame->chunk->constants[const_idx];
+
+                if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_INT)) {
+                    v->data.int_value += 1;
+                    if (MKS_LIKELY(v->data.int_value < c->data.int_value)) {
+                        frame->ip -= back;
+                    }
+                } else if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_FLOAT)) {
+                    double dval = (double)v->data.int_value + 1.0;
+                    if (MKS_LIKELY(dval < c->data.float_value)) {
+                        v->type = VAL_FLOAT;
+                        v->data.float_value = dval;
+                        frame->ip -= back;
+                    } else {
+                        v->data.int_value = (int64_t)dval;
+                    }
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_INT)) {
+                    v->data.float_value += 1.0;
+                    if (MKS_LIKELY(v->data.float_value < (double)c->data.int_value)) {
+                        frame->ip -= back;
+                    }
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_FLOAT)) {
+                    v->data.float_value += 1.0;
+                    if (MKS_LIKELY(v->data.float_value < c->data.float_value)) {
+                        frame->ip -= back;
+                    }
+                } else {
+                    runtime_error("OP_INC_LOCAL_AND_JUMP_IF_LT_CONST expects number");
                 }
                 break;
             }
@@ -769,14 +835,14 @@ RuntimeValue vm_run(VM *vm) {
                 const uint16_t const_idx = vm_read_u16(frame);
                 RuntimeValue *v = &frame->locals[slot];
                 const RuntimeValue *c = &frame->chunk->constants[const_idx];
-                if (v->type == VAL_INT && c->type == VAL_INT) {
+                if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_INT)) {
                     v->data.int_value += c->data.int_value;
-                } else if (v->type == VAL_INT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_FLOAT)) {
                     v->type = VAL_FLOAT;
                     v->data.float_value = (double)v->data.int_value + c->data.float_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_INT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_INT)) {
                     v->data.float_value += (double)c->data.int_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_FLOAT)) {
                     v->data.float_value += c->data.float_value;
                 } else {
                     runtime_error("OP_ADD_LOCAL_CONST expects number");
@@ -790,16 +856,16 @@ RuntimeValue vm_run(VM *vm) {
                 RuntimeValue *a = &frame->locals[dst];
                 const RuntimeValue *b = &frame->locals[src];
 
-                if (a->type == VAL_INT && b->type == VAL_INT) {
+                if (MKS_LIKELY(a->type == VAL_INT && b->type == VAL_INT)) {
                     a->data.int_value += b->data.int_value;
-                } else if (a->type == VAL_INT && b->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(a->type == VAL_INT && b->type == VAL_FLOAT)) {
                     const double left = (double)a->data.int_value;
                     a->type = VAL_FLOAT;
                     a->original_type = VAL_FLOAT;
                     a->data.float_value = left + b->data.float_value;
-                } else if (a->type == VAL_FLOAT && b->type == VAL_INT) {
+                } else if (MKS_LIKELY(a->type == VAL_FLOAT && b->type == VAL_INT)) {
                     a->data.float_value += (double)b->data.int_value;
-                } else if (a->type == VAL_FLOAT && b->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(a->type == VAL_FLOAT && b->type == VAL_FLOAT)) {
                     a->data.float_value += b->data.float_value;
                 } else {
                     RuntimeValue result = vm_apply_binary(OP_ADD, *a, *b);
@@ -814,14 +880,14 @@ RuntimeValue vm_run(VM *vm) {
                 const uint16_t const_idx = vm_read_u16(frame);
                 RuntimeValue *v = &frame->locals[slot];
                 const RuntimeValue *c = &frame->chunk->constants[const_idx];
-                if (v->type == VAL_INT && c->type == VAL_INT) {
+                if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_INT)) {
                     v->data.int_value -= c->data.int_value;
-                } else if (v->type == VAL_INT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_FLOAT)) {
                     v->type = VAL_FLOAT;
                     v->data.float_value = (double)v->data.int_value - c->data.float_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_INT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_INT)) {
                     v->data.float_value -= (double)c->data.int_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_FLOAT)) {
                     v->data.float_value -= c->data.float_value;
                 } else {
                     runtime_error("OP_SUB_LOCAL_CONST expects number");
@@ -834,14 +900,14 @@ RuntimeValue vm_run(VM *vm) {
                 const uint16_t const_idx = vm_read_u16(frame);
                 RuntimeValue *v = &frame->locals[slot];
                 const RuntimeValue *c = &frame->chunk->constants[const_idx];
-                if (v->type == VAL_INT && c->type == VAL_INT) {
+                if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_INT)) {
                     v->data.int_value *= c->data.int_value;
-                } else if (v->type == VAL_INT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_FLOAT)) {
                     v->type = VAL_FLOAT;
                     v->data.float_value = (double)v->data.int_value * c->data.float_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_INT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_INT)) {
                     v->data.float_value *= (double)c->data.int_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_FLOAT)) {
                     v->data.float_value *= c->data.float_value;
                 } else {
                     runtime_error("OP_MUL_LOCAL_CONST expects number");
@@ -854,20 +920,20 @@ RuntimeValue vm_run(VM *vm) {
                 RuntimeValue *v = &frame->locals[slot];
                 const RuntimeValue *c = &frame->chunk->constants[const_idx];
 
-                if ((c->type == VAL_INT && c->data.int_value == 0) ||
-                    (c->type == VAL_FLOAT && c->data.float_value == 0.0)) {
+                if (MKS_UNLIKELY((c->type == VAL_INT && c->data.int_value == 0) ||
+                    (c->type == VAL_FLOAT && c->data.float_value == 0.0))) {
                     runtime_error("division by zero");
                     }
 
-                if (v->type == VAL_INT && c->type == VAL_INT) {
+                if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_INT)) {
                     v->type = VAL_FLOAT;
                     v->data.float_value = (double)v->data.int_value / (double)c->data.int_value;
-                } else if (v->type == VAL_INT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_FLOAT)) {
                     v->type = VAL_FLOAT;
                     v->data.float_value = (double)v->data.int_value / c->data.float_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_INT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_INT)) {
                     v->data.float_value /= (double)c->data.int_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_FLOAT)) {
                     v->data.float_value /= c->data.float_value;
                 } else {
                     runtime_error("OP_DIV_LOCAL_CONST expects number");
@@ -948,18 +1014,18 @@ RuntimeValue vm_run(VM *vm) {
                 RuntimeValue *v = &frame->locals[slot];
                 const RuntimeValue *c = &frame->chunk->constants[const_idx];
                 bool lt = false;
-                if (v->type == VAL_INT && c->type == VAL_INT) {
+                if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_INT)) {
                     lt = v->data.int_value < c->data.int_value;
-                } else if (v->type == VAL_INT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_INT && c->type == VAL_FLOAT)) {
                     lt = (double)v->data.int_value < c->data.float_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_INT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_INT)) {
                     lt = v->data.float_value < (double)c->data.int_value;
-                } else if (v->type == VAL_FLOAT && c->type == VAL_FLOAT) {
+                } else if (MKS_LIKELY(v->type == VAL_FLOAT && c->type == VAL_FLOAT)) {
                     lt = v->data.float_value < c->data.float_value;
                 } else {
                     runtime_error("OP_JUMP_IF_LOCAL_LT_CONST_FALSE expects number");
                 }
-                if (!lt) {
+                if (MKS_UNLIKELY(!lt)) {
                     frame->ip += offset;
                 }
                 break;
@@ -979,6 +1045,15 @@ RuntimeValue vm_run(VM *vm) {
                 RuntimeValue right = vm_stack_pop(vm);
                 RuntimeValue left = vm_stack_pop(vm);
                 vm_stack_push(vm, vm_apply_binary(opcode, left, right));
+                break;
+            }
+
+            case OP_LT_LOCAL_LOCAL: {
+                const uint8_t slot1 = vm_read_u8(frame);
+                const uint8_t slot2 = vm_read_u8(frame);
+                RuntimeValue left = frame->locals[slot1];
+                RuntimeValue right = frame->locals[slot2];
+                vm_stack_push(vm, vm_apply_binary(OP_LT, left, right));
                 break;
             }
 

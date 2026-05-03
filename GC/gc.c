@@ -263,15 +263,26 @@ void gc_init(const size_t initial_threshold) {
     mks_gc.head = NULL;
     mks_gc.allocated_bytes = 0;
     mks_gc.threshold = initial_threshold;
+    mks_gc.young_threshold = 256 * 1024;
     mks_gc.collections = 0;
+    mks_gc.young_collections = 0;
     mks_gc.freed_objects = 0;
     mks_gc.freed_bytes = 0;
+    mks_gc.young_freed_objects = 0;
+    mks_gc.young_freed_bytes = 0;
+    mks_gc.promoted_to_survivor = 0;
+    mks_gc.promoted_to_stable = 0;
+    mks_gc.barrier_calls = 0;
+    mks_gc.old_to_young_edges = 0;
+    mks_gc.full_fallbacks = 0;
     mks_gc.pause_count = 0;
+    mks_gc.young_since_full = 0;
     mks_gc.roots_count = 0;
     mks_gc.env_roots_count = 0;
     mks_gc.pinned_roots_count = 0;
     mks_gc.pinned_env_roots_count = 0;
     mks_gc.root_span_count = 0;
+    mks_gc.remembered_set_count = 0;
     mks_gc.debug_enabled = 0;
 }
 
@@ -312,9 +323,20 @@ void gc_resume(void) {
 }
 
 void gc_check(Environment *env) {
-    if (mks_gc.pause_count == 0 && mks_gc.allocated_bytes >= mks_gc.threshold) {
+    if (mks_gc.pause_count > 0) return;
+
+    size_t pressure = mks_gc.allocated_bytes;
+
+    if (pressure >= mks_gc.young_threshold && mks_gc.young_threshold > 0) {
+        GC_LOG("[GC] young threshold hit: allocated=%zu young_threshold=%zu\n",
+               pressure, mks_gc.young_threshold);
+        gc_collect_young(env, env);
+        return;
+    }
+
+    if (pressure >= mks_gc.threshold) {
         GC_LOG("[GC] threshold hit: allocated=%zu threshold=%zu (collect)\n",
-               mks_gc.allocated_bytes, mks_gc.threshold);
+               pressure, mks_gc.threshold);
         gc_collect(env, env);
     }
 }
@@ -462,6 +484,7 @@ void gc_pin_env(Environment *env) {
     }
 
     mks_gc.pinned_env_roots[mks_gc.pinned_env_roots_count++] = env;
+    ((GCObject*)env)->flags |= ORBIT_FLAG_PINNED;
 }
 
 void gc_unpin_env(Environment *env) {
@@ -473,6 +496,7 @@ void gc_unpin_env(Environment *env) {
         if (mks_gc.pinned_env_roots[i] == env) {
             mks_gc.pinned_env_roots[i] = mks_gc.pinned_env_roots[mks_gc.pinned_env_roots_count - 1];
             mks_gc.pinned_env_roots_count--;
+            ((GCObject*)env)->flags &= ~ORBIT_FLAG_PINNED;
             return;
         }
     }
@@ -660,16 +684,90 @@ void gc_collect(Environment *global_env, Environment *current_env) {
            freed_now_bytes,
            mks_gc.freed_objects,
            mks_gc.freed_bytes);
+
+    mks_gc.remembered_set_count = 0;
+    mks_gc.young_since_full = 0;
+}
+
+static void gc_sweep_young(void) {
+    GCObject **ptr = &mks_gc.head;
+
+    while (*ptr != NULL) {
+        GCObject *obj = *ptr;
+        int orbit = gc_obj_orbit(obj);
+
+        if (orbit >= ORBIT_2_STABLE) {
+            obj->marked = false;
+            ptr = &obj->next;
+            continue;
+        }
+
+        if (!obj->marked) {
+            *ptr = obj->next;
+            mks_gc.allocated_bytes -= obj->size;
+            mks_gc.young_freed_objects++;
+            mks_gc.young_freed_bytes += obj->size;
+            mks_gc.freed_objects++;
+            mks_gc.freed_bytes += obj->size;
+            gc_free_object(obj);
+        } else {
+            obj->marked = false;
+            if (obj->age == 0) {
+                obj->age = 1;
+                mks_gc.promoted_to_survivor++;
+            } else if (obj->age == 1) {
+                obj->age = 2;
+                mks_gc.promoted_to_stable++;
+            }
+            ptr = &obj->next;
+        }
+    }
+}
+
+void gc_collect_young(Environment *global_env, Environment *current_env) {
+    if (mks_gc.pause_count > 0) return;
+
+    if (mks_gc.remembered_set_count >= REMEMBERED_SET_MAX) {
+        mks_gc.full_fallbacks++;
+        gc_collect(global_env, current_env);
+        return;
+    }
+
+    mks_gc.young_collections++;
+    mks_gc.young_since_full++;
+
+    gc_mark_all_iterative(global_env, current_env);
+    gc_sweep_young();
+
+    size_t new_young_threshold = mks_gc.allocated_bytes / 4;
+    if (new_young_threshold < 256 * 1024) new_young_threshold = 256 * 1024;
+    mks_gc.young_threshold = new_young_threshold;
+
+    if (mks_gc.young_since_full >= ORBIT_FULL_GC_INTERVAL) {
+        mks_gc.full_fallbacks++;
+        mks_gc.young_since_full = 0;
+        gc_collect(global_env, current_env);
+    }
 }
 
 void gc_dump_stats(void) {
     fprintf(stderr,
-            "[MKS GC] allocated=%zu threshold=%zu collections=%zu freed_objects=%zu freed_bytes=%zu\n",
+            "[MKS GC] allocated=%zu threshold=%zu young_threshold=%zu "
+            "collections=%zu young=%zu freed=%zu young_freed=%zu "
+            "promoted_survivor=%zu promoted_stable=%zu "
+            "barrier_calls=%zu old_to_young=%zu full_fallbacks=%zu\n",
             mks_gc.allocated_bytes,
             mks_gc.threshold,
+            mks_gc.young_threshold,
             mks_gc.collections,
+            mks_gc.young_collections,
             mks_gc.freed_objects,
-            mks_gc.freed_bytes);
+            mks_gc.young_freed_objects,
+            mks_gc.promoted_to_survivor,
+            mks_gc.promoted_to_stable,
+            mks_gc.barrier_calls,
+            mks_gc.old_to_young_edges,
+            mks_gc.full_fallbacks);
 }
 
 void gc_dump_objects(void) {
@@ -785,4 +883,76 @@ void orbit_dump_hot_objects(void) {
         }
     }
 #undef GC_TYPE_COUNT
+}
+
+/* === ORBIT GC V1: GENERATIONAL COLLECTION === */
+
+static GCObject *gc_obj_of_value(const RuntimeValue *val) {
+    if (val == NULL) return NULL;
+    switch (val->type) {
+        case VAL_STRING:
+            return (GCObject *)val->data.managed_string;
+        case VAL_ARRAY:
+            return (GCObject *)val->data.managed_array;
+        case VAL_POINTER:
+            return (GCObject *)val->data.managed_pointer;
+        case VAL_OBJECT:
+        case VAL_MODULE:
+            return (GCObject *)val->data.obj_env;
+        case VAL_FUNC:
+            return (GCObject *)val->data.func.closure_env;
+        case VAL_BLUEPRINT:
+            return (GCObject *)val->data.blueprint.closure_env;
+        case VAL_STRING_BUILDER:
+            return (GCObject *)val->data.string_builder;
+        default:
+            return NULL;
+    }
+}
+
+static void gc_remembered_set_add(GCObject *obj) {
+    if (obj == NULL) return;
+
+    for (int i = 0; i < mks_gc.remembered_set_count; i++) {
+        if (mks_gc.remembered_set[i] == obj) return;
+    }
+
+    if (mks_gc.remembered_set_count < REMEMBERED_SET_MAX) {
+        mks_gc.remembered_set[mks_gc.remembered_set_count++] = obj;
+    }
+}
+
+void gc_write_barrier(GCObject *owner, const RuntimeValue *value) {
+    mks_gc.barrier_calls++;
+
+    if (owner == NULL) return;
+
+    int owner_orbit = gc_obj_orbit(owner);
+    if (owner_orbit < ORBIT_2_STABLE) return;
+
+    GCObject *val_obj = gc_obj_of_value(value);
+    if (val_obj == NULL) return;
+
+    int val_orbit = gc_obj_orbit(val_obj);
+    if (val_orbit >= ORBIT_2_STABLE) return;
+
+    mks_gc.old_to_young_edges++;
+    gc_remembered_set_add(owner);
+}
+
+void gc_external_alloc(GCObject *obj, size_t bytes) {
+    if (obj == NULL) return;
+    obj->external_size += bytes;
+    mks_gc.allocated_bytes += bytes;
+}
+
+void gc_external_free(GCObject *obj, size_t bytes) {
+    if (obj == NULL) return;
+    obj->external_size = (obj->external_size > bytes) ? obj->external_size - bytes : 0;
+    mks_gc.allocated_bytes = (mks_gc.allocated_bytes > bytes) ? mks_gc.allocated_bytes - bytes : 0;
+}
+
+size_t gc_object_total_size(const GCObject *obj) {
+    if (obj == NULL) return 0;
+    return obj->size + obj->external_size;
 }

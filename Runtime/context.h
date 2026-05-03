@@ -39,10 +39,12 @@ typedef struct MKSContext {
     int eval_depth;
 
     int profiler_enabled;
+    int profiler_level;
     unsigned long profiler_counts[64];
     unsigned long profiler_vm_opcode_counts[64];
     unsigned long profiler_vm_hot_counts[16];
     struct timespec profiler_start;
+    void *profiler_data;  // MksProfiler*
 
     uint64_t random_state;
 

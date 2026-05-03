@@ -215,6 +215,9 @@ bool compiler_can_compile_impl(ASTNode *node) {
 
             return compiler_can_compile_impl(node->data.switch_stmt.default_body);
 
+        case AST_INC_OP:
+            return compiler_can_compile_impl(node->data.inc_op.target);
+
         default:
             return false;
     }

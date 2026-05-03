@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static ASTNode *create_ast(ASTNodeType type, int line) {
+static ASTNode *create_ast(ASTNodeType type, int line, int column) {
     ASTNode *node = malloc(sizeof(ASTNode));
     if (node == NULL) {
         fprintf(stderr, "[MKS AST Error] Out of memory while creating AST node\n");
@@ -13,11 +13,12 @@ static ASTNode *create_ast(ASTNodeType type, int line) {
     memset(node, 0, sizeof(ASTNode));
     node->type = type;
     node->line = line;
+    node->column = column;
     return node;
 }
 
-ASTNode *create_ast_ident(char *name, unsigned int id_hash, int line) {
-    ASTNode *node = create_ast(AST_IDENTIFIER, line);
+ASTNode *create_ast_ident(char *name, unsigned int id_hash, int line, int col) {
+    ASTNode *node = create_ast(AST_IDENTIFIER, line, col);
     node->data.identifier.name = name;
     node->data.identifier.id_hash = id_hash;
     node->data.identifier.cached_entry = NULL;
@@ -26,16 +27,16 @@ ASTNode *create_ast_ident(char *name, unsigned int id_hash, int line) {
     return node;
 }
 
-ASTNode *create_ast_var_decl(ASTNode *value, int line, char *name, unsigned int id_hash) {
-    ASTNode *node = create_ast(AST_VAR_DECL, line);
+ASTNode *create_ast_var_decl(ASTNode *value, int line, int col, char *name, unsigned int id_hash) {
+    ASTNode *node = create_ast(AST_VAR_DECL, line, col);
     node->data.var_decl.name = name;
     node->data.var_decl.id_hash = id_hash;
     node->data.var_decl.value = value;
     return node;
 }
 
-ASTNode *create_ast_assign(char *name, unsigned int id_hash, ASTNode *value, int line) {
-    ASTNode *node = create_ast(AST_ASSIGN, line);
+ASTNode *create_ast_assign(char *name, unsigned int id_hash, ASTNode *value, int line, int col) {
+    ASTNode *node = create_ast(AST_ASSIGN, line, col);
     node->data.assign.name = name;
     node->data.assign.id_hash = id_hash;
     node->data.assign.value = value;
@@ -45,114 +46,121 @@ ASTNode *create_ast_assign(char *name, unsigned int id_hash, ASTNode *value, int
     return node;
 }
 
-ASTNode *create_ast_num(double val, int line) {
-    return create_ast_float(val, line);
+ASTNode *create_ast_num(double val, int line, int col) {
+    return create_ast_float(val, line, col);
 }
 
-ASTNode *create_ast_int(const int64_t val, int line) {
-    ASTNode *node = create_ast(AST_NUMBER, line);
+ASTNode *create_ast_int(const int64_t val, int line, int col) {
+    ASTNode *node = create_ast(AST_NUMBER, line, col);
     node->data.number.kind = NUMBER_INT;
     node->data.number.int_value = val;
     node->data.number.float_value = (double)val;
     return node;
 }
 
-ASTNode *create_ast_float(const double val, int line) {
-    ASTNode *node = create_ast(AST_NUMBER, line);
+ASTNode *create_ast_float(const double val, int line, int col) {
+    ASTNode *node = create_ast(AST_NUMBER, line, col);
     node->data.number.kind = NUMBER_FLOAT;
     node->data.number.int_value = (int64_t)val;
     node->data.number.float_value = val;
     return node;
 }
 
-ASTNode *create_ast_string(char *val, int line) {
-    ASTNode *node = create_ast(AST_STRING, line);
+ASTNode *create_ast_string(char *val, int line, int col) {
+    ASTNode *node = create_ast(AST_STRING, line, col);
     node->data.string_value = val;
     return node;
 }
 
-ASTNode *create_ast_null(int line) {
-    return create_ast(AST_NULL, line);
+ASTNode *create_ast_null(int line, int col) {
+    return create_ast(AST_NULL, line, col);
 }
 
-ASTNode *create_ast_bool(bool value, int line) {
-    ASTNode *node = create_ast(AST_BOOL, line);
+ASTNode *create_ast_bool(bool value, int line, int col) {
+    ASTNode *node = create_ast(AST_BOOL, line, col);
     node->data.bool_value = value;
     return node;
 }
 
-ASTNode *create_ast_array(ASTNode **elements, int count, int line) {
-    ASTNode *node = create_ast(AST_ARRAY, line);
+ASTNode *create_ast_array(ASTNode **elements, int count, int line, int col) {
+    ASTNode *node = create_ast(AST_ARRAY, line, col);
     node->data.array.items = elements;
     node->data.array.item_count = count;
     return node;
 }
 
-ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, int op, int line) {
-    ASTNode *node = create_ast(AST_BINOP, line);
+ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, int op, int line, int col) {
+    ASTNode *node = create_ast(AST_BINOP, line, col);
     node->data.binop.left = left;
     node->data.binop.right = right;
     node->data.binop.op = op;
     return node;
 }
 
-ASTNode *create_ast_index(ASTNode *target, ASTNode *index, int line) {
-    ASTNode *node = create_ast(AST_INDEX, line);
+ASTNode *create_ast_index(ASTNode *target, ASTNode *index, int line, int col) {
+    ASTNode *node = create_ast(AST_INDEX, line, col);
     node->data.index.target = target;
     node->data.index.index = index;
     return node;
 }
 
-ASTNode *create_ast_index_assign(ASTNode *left, ASTNode *right, int line) {
-    ASTNode *node = create_ast(AST_INDEX_ASSIGN, line);
+ASTNode *create_ast_index_assign(ASTNode *left, ASTNode *right, int line, int col) {
+    ASTNode *node = create_ast(AST_INDEX_ASSIGN, line, col);
     node->data.index_assign.left = left;
     node->data.index_assign.right = right;
     return node;
 }
 
-ASTNode *create_ast_address_of(ASTNode *target, int line) {
-    ASTNode *node = create_ast(AST_ADDRESS_OF, line);
+ASTNode *create_ast_address_of(ASTNode *target, int line, int col) {
+    ASTNode *node = create_ast(AST_ADDRESS_OF, line, col);
     node->data.address_of.target = target;
     return node;
 }
 
-ASTNode *create_ast_deref(ASTNode *target, int line) {
-    ASTNode *node = create_ast(AST_DEREF, line);
+ASTNode *create_ast_deref(ASTNode *target, int line, int col) {
+    ASTNode *node = create_ast(AST_DEREF, line, col);
     node->data.deref.target = target;
     return node;
 }
 
-ASTNode *create_ast_deref_assign(ASTNode *target, ASTNode *value, int line) {
-    ASTNode *node = create_ast(AST_DEREF_ASSIGN, line);
+ASTNode *create_ast_deref_assign(ASTNode *target, ASTNode *value, int line, int col) {
+    ASTNode *node = create_ast(AST_DEREF_ASSIGN, line, col);
     node->data.deref_assign.target = target;
     node->data.deref_assign.value = value;
     return node;
 }
 
-ASTNode *create_ast_swap(ASTNode *l, ASTNode *r, int line) {
-    ASTNode *node = create_ast(AST_SWAP, line);
+ASTNode *create_ast_inc_op(ASTNode *target, int is_dec, int line, int col) {
+    ASTNode *node = create_ast(AST_INC_OP, line, col);
+    node->data.inc_op.target = target;
+    node->data.inc_op.is_dec = is_dec;
+    return node;
+}
+
+ASTNode *create_ast_swap(ASTNode *l, ASTNode *r, int line, int col) {
+    ASTNode *node = create_ast(AST_SWAP, line, col);
     node->data.swap_stmt.left = l;
     node->data.swap_stmt.right = r;
     return node;
 }
 
-ASTNode *create_ast_test(char *name, ASTNode *body, int line) {
-    ASTNode *node = create_ast(AST_TEST, line);
+ASTNode *create_ast_test(char *name, ASTNode *body, int line, int col) {
+    ASTNode *node = create_ast(AST_TEST, line, col);
     node->data.test_block.name = name;
     node->data.test_block.body = body;
     return node;
 }
 
-ASTNode *create_ast_obj_get(ASTNode *object, char *field, unsigned int hash, int line) {
-    ASTNode *node = create_ast(AST_OBJ_GET, line);
+ASTNode *create_ast_obj_get(ASTNode *object, char *field, unsigned int hash, int line, int col) {
+    ASTNode *node = create_ast(AST_OBJ_GET, line, col);
     node->data.obj_get.object = object;
     node->data.obj_get.field = field;
     node->data.obj_get.field_hash = hash;
     return node;
 }
 
-ASTNode *create_ast_obj_set(ASTNode *object, char *field, unsigned int hash, ASTNode *value, int line) {
-    ASTNode *node = create_ast(AST_OBJ_SET, line);
+ASTNode *create_ast_obj_set(ASTNode *object, char *field, unsigned int hash, ASTNode *value, int line, int col) {
+    ASTNode *node = create_ast(AST_OBJ_SET, line, col);
     node->data.obj_set.object = object;
     node->data.obj_set.field = field;
     node->data.obj_set.field_hash = hash;
@@ -160,30 +168,30 @@ ASTNode *create_ast_obj_set(ASTNode *object, char *field, unsigned int hash, AST
     return node;
 }
 
-ASTNode *create_ast_block(ASTNode **items, int count, int line) {
-    ASTNode *node = create_ast(AST_BLOCK, line);
+ASTNode *create_ast_block(ASTNode **items, int count, int line, int col) {
+    ASTNode *node = create_ast(AST_BLOCK, line, col);
     node->data.block.items = items;
     node->data.block.count = count;
     return node;
 }
 
-ASTNode *create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block, int line) {
-    ASTNode *node = create_ast(AST_IF_BLOCK, line);
+ASTNode *create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block, int line, int col) {
+    ASTNode *node = create_ast(AST_IF_BLOCK, line, col);
     node->data.if_block.condition = condition;
     node->data.if_block.body = body;
     node->data.if_block.else_body = else_block;
     return node;
 }
 
-ASTNode *create_while_block(ASTNode *condition, ASTNode *body, int line) {
-    ASTNode *node = create_ast(AST_WHILE, line);
+ASTNode *create_while_block(ASTNode *condition, ASTNode *body, int line, int col) {
+    ASTNode *node = create_ast(AST_WHILE, line, col);
     node->data.while_block.condition = condition;
     node->data.while_block.body = body;
     return node;
 }
 
-ASTNode *create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNode *body, int line) {
-    ASTNode *node = create_ast(AST_FOR, line);
+ASTNode *create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNode *body, int line, int col) {
+    ASTNode *node = create_ast(AST_FOR, line, col);
     node->data.for_block.init = init;
     node->data.for_block.condition = condition;
     node->data.for_block.step = step;
@@ -191,14 +199,14 @@ ASTNode *create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNod
     return node;
 }
 
-ASTNode *create_ast_return(ASTNode *value, int line) {
-    ASTNode *node = create_ast(AST_RETURN, line);
+ASTNode *create_ast_return(ASTNode *value, int line, int col) {
+    ASTNode *node = create_ast(AST_RETURN, line, col);
     node->data.return_stmt.value = value;
     return node;
 }
 
-ASTNode *create_ast_func_decl(char *name, unsigned int name_hash, char **params,unsigned int *param_hashes, const int param_count,ASTNode *body, const int line) {
-    ASTNode *node = create_ast(AST_FUNC_DECL, line);
+ASTNode *create_ast_func_decl(char *name, unsigned int name_hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *body, int line, int col) {
+    ASTNode *node = create_ast(AST_FUNC_DECL, line, col);
     node->data.func_decl.name = name;
     node->data.func_decl.name_hash = name_hash;
     node->data.func_decl.params = params;
@@ -208,8 +216,8 @@ ASTNode *create_ast_func_decl(char *name, unsigned int name_hash, char **params,
     return node;
 }
 
-ASTNode *create_ast_func_call(char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line) {
-    ASTNode *node = create_ast(AST_FUNC_CALL, line);
+ASTNode *create_ast_func_call(char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line, int col) {
+    ASTNode *node = create_ast(AST_FUNC_CALL, line, col);
     node->data.func_call.name = name;
     node->data.func_call.id_hash = id_hash;
     node->data.func_call.args = args;
@@ -217,8 +225,8 @@ ASTNode *create_ast_func_call(char *name, unsigned int id_hash, ASTNode **args, 
     return node;
 }
 
-ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line) {
-    ASTNode *node = create_ast(AST_METHOD_CALL, line);
+ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line, int col) {
+    ASTNode *node = create_ast(AST_METHOD_CALL, line, col);
     node->data.method_call.target = target;
     node->data.method_call.method_name = name;
     node->data.method_call.method_hash = id_hash;
@@ -227,8 +235,8 @@ ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_has
     return node;
 }
 
-ASTNode *create_ast_entity(char *name, unsigned int hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *init_body, ASTNode **methods, int method_count, int line) {
-    ASTNode *node = create_ast(AST_ENTITY, line);
+ASTNode *create_ast_entity(char *name, unsigned int hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *init_body, ASTNode **methods, int method_count, int line, int col) {
+    ASTNode *node = create_ast(AST_ENTITY, line, col);
     node->data.entity.name = name;
     node->data.entity.name_hash = hash;
     node->data.entity.params = params;
@@ -240,37 +248,37 @@ ASTNode *create_ast_entity(char *name, unsigned int hash, char **params, unsigne
     return node;
 }
 
-ASTNode *create_ast_extend(int target_type, ASTNode **methods, int method_count, int line) {
-    ASTNode *node = create_ast(AST_EXTEND, line);
+ASTNode *create_ast_extend(int target_type, ASTNode **methods, int method_count, int line, int col) {
+    ASTNode *node = create_ast(AST_EXTEND, line, col);
     node->data.extend.target_type = target_type;
     node->data.extend.methods = methods;
     node->data.extend.method_count = method_count;
     return node;
 }
 
-ASTNode *create_ast_defer(ASTNode *body, int line) {
-    ASTNode *node = create_ast(AST_DEFER, line);
+ASTNode *create_ast_defer(ASTNode *body, int line, int col) {
+    ASTNode *node = create_ast(AST_DEFER, line, col);
     node->data.defer_stmt.body = body;
     return node;
 }
 
-ASTNode *create_ast_watch(char *name, unsigned int hash, int line) {
-    ASTNode *node = create_ast(AST_WATCH, line);
+ASTNode *create_ast_watch(char *name, unsigned int hash, int line, int col) {
+    ASTNode *node = create_ast(AST_WATCH, line, col);
     node->data.watch_stmt.name = name;
     node->data.watch_stmt.hash = hash;
     return node;
 }
 
-ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int line) {
-    ASTNode *node = create_ast(AST_ON_CHANGE, line);
+ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int line, int col) {
+    ASTNode *node = create_ast(AST_ON_CHANGE, line, col);
     node->data.on_change_stmt.name = name;
     node->data.on_change_stmt.hash = hash;
     node->data.on_change_stmt.body = body;
     return node;
 }
 
-ASTNode *create_ast_using(char *path, char *alias, bool is_legacy_path, bool star_import, int line) {
-    ASTNode *node = create_ast(AST_USING, line);
+ASTNode *create_ast_using(char *path, char *alias, bool is_legacy_path, bool star_import, int line, int col) {
+    ASTNode *node = create_ast(AST_USING, line, col);
     node->data.using_stmt.path = path;
     node->data.using_stmt.alias = alias;
     node->data.using_stmt.is_legacy_path = is_legacy_path;
@@ -278,23 +286,23 @@ ASTNode *create_ast_using(char *path, char *alias, bool is_legacy_path, bool sta
     return node;
 }
 
-ASTNode *create_ast_export(ASTNode *decl, char *name_override, int line) {
-    ASTNode *node = create_ast(AST_EXPORT, line);
+ASTNode *create_ast_export(ASTNode *decl, char *name_override, int line, int col) {
+    ASTNode *node = create_ast(AST_EXPORT, line, col);
     node->data.export_stmt.decl = decl;
     node->data.export_stmt.name_override = name_override;
     return node;
 }
 
-ASTNode *create_ast_break(int line) {
-    return create_ast(AST_BREAK, line);
+ASTNode *create_ast_break(int line, int col) {
+    return create_ast(AST_BREAK, line, col);
 }
 
-ASTNode *create_ast_continue(int line) {
-    return create_ast(AST_CONTINUE, line);
+ASTNode *create_ast_continue(int line, int col) {
+    return create_ast(AST_CONTINUE, line, col);
 }
 
-ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, ASTNode *count_expr, ASTNode *body, int line) {
-    ASTNode *node = create_ast(AST_REPEAT, line);
+ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, ASTNode *count_expr, ASTNode *body, int line, int col) {
+    ASTNode *node = create_ast(AST_REPEAT, line, col);
     node->data.repeat_stmt.has_iterator = has_iter;
     node->data.repeat_stmt.iter_name = iter;
     node->data.repeat_stmt.iter_hash = iter_hash;
@@ -308,8 +316,9 @@ ASTNode *create_ast_switch(ASTNode *value,
                            ASTNode **case_bodies,
                            int case_count,
                            ASTNode *default_body,
-                           int line) {
-    ASTNode *node = create_ast(AST_SWITCH, line);
+                           int line,
+                           int col) {
+    ASTNode *node = create_ast(AST_SWITCH, line, col);
     node->data.switch_stmt.value = value;
     node->data.switch_stmt.case_values = case_values;
     node->data.switch_stmt.case_bodies = case_bodies;
@@ -318,253 +327,276 @@ ASTNode *create_ast_switch(ASTNode *value,
     return node;
 }
 
-ASTNode *create_ast_output(ASTNode **args, int count, bool is_newline, int line) {
-    ASTNode *node = create_ast(AST_OUTPUT, line);
+ASTNode *create_ast_output(ASTNode **args, int count, bool is_newline, int line, int col) {
+    ASTNode *node = create_ast(AST_OUTPUT, line, col);
     node->data.output.args = args;
     node->data.output.arg_count = count;
     node->data.output.is_newline = is_newline;
     return node;
 }
 
-void delete_ast_node(ASTNode *node) {
+static void free_string_array(char **items, int count) {
+    if (items != NULL) {
+        for (int i = 0; i < count; i++) {
+            free(items[i]);
+        }
+        free(items);
+    }
+}
+
+typedef struct {
+    ASTNode **items;
+    size_t count;
+    size_t capacity;
+} ASTDeleteStack;
+
+static void ast_delete_stack_push(ASTDeleteStack *stack, ASTNode *node) {
     if (node == NULL) {
         return;
     }
 
-    switch (node->type) {
-        case AST_BLOCK:
-            if (node->data.block.items != NULL) {
-                for (int i = 0; i < node->data.block.count; i++) {
-                    delete_ast_node(node->data.block.items[i]);
-                }
-                free(node->data.block.items);
-            }
-            break;
-
-        case AST_IF_BLOCK:
-            delete_ast_node(node->data.if_block.condition);
-            delete_ast_node(node->data.if_block.body);
-            delete_ast_node(node->data.if_block.else_body);
-            break;
-
-        case AST_WHILE:
-            delete_ast_node(node->data.while_block.condition);
-            delete_ast_node(node->data.while_block.body);
-            break;
-
-        case AST_BINOP:
-            delete_ast_node(node->data.binop.left);
-            delete_ast_node(node->data.binop.right);
-            break;
-
-        case AST_VAR_DECL:
-            free(node->data.var_decl.name);
-            delete_ast_node(node->data.var_decl.value);
-            break;
-
-        case AST_ASSIGN:
-            free(node->data.assign.name);
-            delete_ast_node(node->data.assign.value);
-            break;
-
-        case AST_IDENTIFIER:
-            free(node->data.identifier.name);
-            break;
-
-        case AST_STRING:
-            free(node->data.string_value);
-            break;
-
-        case AST_NULL:
-        case AST_BOOL:
-            break;
-
-        case AST_OUTPUT:
-            if (node->data.output.args != NULL) {
-                for (int i = 0; i < node->data.output.arg_count; i++) {
-                    delete_ast_node(node->data.output.args[i]);
-                }
-                free(node->data.output.args);
-            }
-            break;
-
-        case AST_RETURN:
-            delete_ast_node(node->data.return_stmt.value);
-            break;
-
-        case AST_FUNC_DECL:
-            free(node->data.func_decl.name);
-
-            if (node->data.func_decl.params != NULL) {
-                for (int i = 0; i < node->data.func_decl.param_count; i++) {
-                    free(node->data.func_decl.params[i]);
-                }
-                free(node->data.func_decl.params);
-            }
-
-            free(node->data.func_decl.param_hashes);
-
-            delete_ast_node(node->data.func_decl.body);
-            break;
-
-        case AST_FUNC_CALL:
-            free(node->data.func_call.name);
-            if (node->data.func_call.args != NULL) {
-                for (int i = 0; i < node->data.func_call.arg_count; i++) {
-                    delete_ast_node(node->data.func_call.args[i]);
-                }
-                free(node->data.func_call.args);
-            }
-            break;
-
-        case AST_FOR:
-            delete_ast_node(node->data.for_block.init);
-            delete_ast_node(node->data.for_block.condition);
-            delete_ast_node(node->data.for_block.step);
-            delete_ast_node(node->data.for_block.body);
-            break;
-
-        case AST_INDEX:
-            delete_ast_node(node->data.index.target);
-            delete_ast_node(node->data.index.index);
-            break;
-
-        case AST_ARRAY:
-            if (node->data.array.items != NULL) {
-                for (int i = 0; i < node->data.array.item_count; i++) {
-                    delete_ast_node(node->data.array.items[i]);
-                }
-                free(node->data.array.items);
-            }
-            break;
-
-        case AST_METHOD_CALL:
-            delete_ast_node(node->data.method_call.target);
-            free(node->data.method_call.method_name);
-            if (node->data.method_call.args != NULL) {
-                for (int i = 0; i < node->data.method_call.arg_count; i++) {
-                    delete_ast_node(node->data.method_call.args[i]);
-                }
-                free(node->data.method_call.args);
-            }
-            break;
-
-        case AST_OBJ_GET:
-            delete_ast_node(node->data.obj_get.object);
-            free(node->data.obj_get.field);
-            break;
-
-        case AST_OBJ_SET:
-            delete_ast_node(node->data.obj_set.object);
-            delete_ast_node(node->data.obj_set.value);
-            free(node->data.obj_set.field);
-            break;
-
-        case AST_SWAP:
-            delete_ast_node(node->data.swap_stmt.left);
-            delete_ast_node(node->data.swap_stmt.right);
-            break;
-
-        case AST_TEST:
-            free(node->data.test_block.name);
-            delete_ast_node(node->data.test_block.body);
-            break;
-
-        case AST_ENTITY:
-            free(node->data.entity.name);
-            if (node->data.entity.params) {
-                for (int i = 0; i < node->data.entity.param_count; i++) {
-                    free(node->data.entity.params[i]);
-                }
-                free(node->data.entity.params);
-                free(node->data.entity.param_hashes);
-            }
-            delete_ast_node(node->data.entity.init_body);
-            if (node->data.entity.methods) {
-                for (int i = 0; i < node->data.entity.method_count; i++) {
-                    delete_ast_node(node->data.entity.methods[i]);
-                }
-                free(node->data.entity.methods);
-            }
-            break;
-
-        case AST_EXTEND:
-            if (node->data.extend.methods) {
-                for (int i = 0; i < node->data.extend.method_count; i++) {
-                    delete_ast_node(node->data.extend.methods[i]);
-                }
-                free(node->data.extend.methods);
-            }
-            break;
-
-        case AST_USING:
-            free(node->data.using_stmt.path);
-            free(node->data.using_stmt.alias);
-            break;
-
-        case AST_EXPORT:
-            delete_ast_node(node->data.export_stmt.decl);
-            free(node->data.export_stmt.name_override);
-            break;
-
-        case AST_DEFER:
-            delete_ast_node(node->data.defer_stmt.body);
-            break;
-
-        case AST_WATCH:
-            free(node->data.watch_stmt.name);
-            break;
-
-        case AST_ON_CHANGE:
-            free(node->data.on_change_stmt.name);
-            delete_ast_node(node->data.on_change_stmt.body);
-            break;
-
-        case AST_REPEAT:
-            free(node->data.repeat_stmt.iter_name);
-            delete_ast_node(node->data.repeat_stmt.count_expr);
-            delete_ast_node(node->data.repeat_stmt.body);
-            break;
-
-        case AST_SWITCH:
-            delete_ast_node(node->data.switch_stmt.value);
-            if (node->data.switch_stmt.case_values != NULL) {
-                for (int i = 0; i < node->data.switch_stmt.case_count; i++) {
-                    delete_ast_node(node->data.switch_stmt.case_values[i]);
-                }
-                free(node->data.switch_stmt.case_values);
-            }
-            if (node->data.switch_stmt.case_bodies != NULL) {
-                for (int i = 0; i < node->data.switch_stmt.case_count; i++) {
-                    delete_ast_node(node->data.switch_stmt.case_bodies[i]);
-                }
-                free(node->data.switch_stmt.case_bodies);
-            }
-            delete_ast_node(node->data.switch_stmt.default_body);
-            break;
-
-        case AST_INDEX_ASSIGN:
-            delete_ast_node(node->data.index_assign.left);
-            delete_ast_node(node->data.index_assign.right);
-            break;
-
-        case AST_ADDRESS_OF:
-            delete_ast_node(node->data.address_of.target);
-            break;
-
-        case AST_DEREF:
-            delete_ast_node(node->data.deref.target);
-            break;
-
-        case AST_DEREF_ASSIGN:
-            delete_ast_node(node->data.deref_assign.target);
-            delete_ast_node(node->data.deref_assign.value);
-            break;
-
-        case AST_NUMBER:
-        default:
-            break;
+    if (stack->count >= stack->capacity) {
+        size_t new_capacity = stack->capacity == 0 ? 64 : stack->capacity * 2;
+        ASTNode **new_items = (ASTNode **)realloc(stack->items, sizeof(ASTNode *) * new_capacity);
+        if (new_items == NULL) {
+            fprintf(stderr, "[MKS AST Error] Out of memory while growing delete stack\n");
+            exit(1);
+        }
+        stack->items = new_items;
+        stack->capacity = new_capacity;
     }
 
-    free(node);
+    stack->items[stack->count++] = node;
+}
+
+static void ast_delete_stack_free(ASTDeleteStack *stack) {
+    free(stack->items);
+    stack->items = NULL;
+    stack->count = 0;
+    stack->capacity = 0;
+}
+
+void delete_ast_node(ASTNode *root) {
+    if (root == NULL) {
+        return;
+    }
+
+    ASTDeleteStack stack = {0};
+    ast_delete_stack_push(&stack, root);
+
+    while (stack.count > 0) {
+        ASTNode *node = stack.items[--stack.count];
+        if (node == NULL) {
+            continue;
+        }
+
+        switch (node->type) {
+            case AST_BLOCK:
+                for (int i = node->data.block.count - 1; i >= 0; i--) {
+                    ast_delete_stack_push(&stack, node->data.block.items[i]);
+                }
+                free(node->data.block.items);
+                break;
+
+            case AST_IF_BLOCK:
+                ast_delete_stack_push(&stack, node->data.if_block.else_body);
+                ast_delete_stack_push(&stack, node->data.if_block.body);
+                ast_delete_stack_push(&stack, node->data.if_block.condition);
+                break;
+
+            case AST_WHILE:
+                ast_delete_stack_push(&stack, node->data.while_block.body);
+                ast_delete_stack_push(&stack, node->data.while_block.condition);
+                break;
+
+            case AST_BINOP:
+                ast_delete_stack_push(&stack, node->data.binop.right);
+                ast_delete_stack_push(&stack, node->data.binop.left);
+                break;
+
+            case AST_VAR_DECL:
+                free(node->data.var_decl.name);
+                ast_delete_stack_push(&stack, node->data.var_decl.value);
+                break;
+
+            case AST_ASSIGN:
+                free(node->data.assign.name);
+                ast_delete_stack_push(&stack, node->data.assign.value);
+                break;
+
+            case AST_IDENTIFIER:
+                free(node->data.identifier.name);
+                break;
+
+            case AST_STRING:
+                free(node->data.string_value);
+                break;
+
+            case AST_NULL:
+            case AST_BOOL:
+            case AST_NUMBER:
+                break;
+
+            case AST_OUTPUT:
+                for (int i = node->data.output.arg_count - 1; i >= 0; i--) {
+                    ast_delete_stack_push(&stack, node->data.output.args[i]);
+                }
+                free(node->data.output.args);
+                break;
+
+            case AST_RETURN:
+                ast_delete_stack_push(&stack, node->data.return_stmt.value);
+                break;
+
+            case AST_FUNC_DECL:
+                free(node->data.func_decl.name);
+                free_string_array(node->data.func_decl.params, node->data.func_decl.param_count);
+                free(node->data.func_decl.param_hashes);
+                ast_delete_stack_push(&stack, node->data.func_decl.body);
+                break;
+
+            case AST_FUNC_CALL:
+                free(node->data.func_call.name);
+                for (int i = node->data.func_call.arg_count - 1; i >= 0; i--) {
+                    ast_delete_stack_push(&stack, node->data.func_call.args[i]);
+                }
+                free(node->data.func_call.args);
+                break;
+
+            case AST_FOR:
+                ast_delete_stack_push(&stack, node->data.for_block.body);
+                ast_delete_stack_push(&stack, node->data.for_block.step);
+                ast_delete_stack_push(&stack, node->data.for_block.condition);
+                ast_delete_stack_push(&stack, node->data.for_block.init);
+                break;
+
+            case AST_INDEX:
+                ast_delete_stack_push(&stack, node->data.index.index);
+                ast_delete_stack_push(&stack, node->data.index.target);
+                break;
+
+            case AST_ARRAY:
+                for (int i = node->data.array.item_count - 1; i >= 0; i--) {
+                    ast_delete_stack_push(&stack, node->data.array.items[i]);
+                }
+                free(node->data.array.items);
+                break;
+
+            case AST_METHOD_CALL:
+                free(node->data.method_call.method_name);
+                for (int i = node->data.method_call.arg_count - 1; i >= 0; i--) {
+                    ast_delete_stack_push(&stack, node->data.method_call.args[i]);
+                }
+                free(node->data.method_call.args);
+                ast_delete_stack_push(&stack, node->data.method_call.target);
+                break;
+
+            case AST_OBJ_GET:
+                free(node->data.obj_get.field);
+                ast_delete_stack_push(&stack, node->data.obj_get.object);
+                break;
+
+            case AST_OBJ_SET:
+                free(node->data.obj_set.field);
+                ast_delete_stack_push(&stack, node->data.obj_set.value);
+                ast_delete_stack_push(&stack, node->data.obj_set.object);
+                break;
+
+            case AST_SWAP:
+                ast_delete_stack_push(&stack, node->data.swap_stmt.right);
+                ast_delete_stack_push(&stack, node->data.swap_stmt.left);
+                break;
+
+            case AST_TEST:
+                free(node->data.test_block.name);
+                ast_delete_stack_push(&stack, node->data.test_block.body);
+                break;
+
+            case AST_ENTITY:
+                free(node->data.entity.name);
+                free_string_array(node->data.entity.params, node->data.entity.param_count);
+                free(node->data.entity.param_hashes);
+                ast_delete_stack_push(&stack, node->data.entity.init_body);
+                for (int i = node->data.entity.method_count - 1; i >= 0; i--) {
+                    ast_delete_stack_push(&stack, node->data.entity.methods[i]);
+                }
+                free(node->data.entity.methods);
+                break;
+
+            case AST_EXTEND:
+                for (int i = node->data.extend.method_count - 1; i >= 0; i--) {
+                    ast_delete_stack_push(&stack, node->data.extend.methods[i]);
+                }
+                free(node->data.extend.methods);
+                break;
+
+            case AST_USING:
+                free(node->data.using_stmt.path);
+                free(node->data.using_stmt.alias);
+                break;
+
+            case AST_EXPORT:
+                free(node->data.export_stmt.name_override);
+                ast_delete_stack_push(&stack, node->data.export_stmt.decl);
+                break;
+
+            case AST_DEFER:
+                ast_delete_stack_push(&stack, node->data.defer_stmt.body);
+                break;
+
+            case AST_WATCH:
+                free(node->data.watch_stmt.name);
+                break;
+
+            case AST_ON_CHANGE:
+                free(node->data.on_change_stmt.name);
+                ast_delete_stack_push(&stack, node->data.on_change_stmt.body);
+                break;
+
+            case AST_REPEAT:
+                free(node->data.repeat_stmt.iter_name);
+                ast_delete_stack_push(&stack, node->data.repeat_stmt.body);
+                ast_delete_stack_push(&stack, node->data.repeat_stmt.count_expr);
+                break;
+
+            case AST_SWITCH:
+                ast_delete_stack_push(&stack, node->data.switch_stmt.default_body);
+                for (int i = node->data.switch_stmt.case_count - 1; i >= 0; i--) {
+                    ast_delete_stack_push(&stack, node->data.switch_stmt.case_bodies[i]);
+                    ast_delete_stack_push(&stack, node->data.switch_stmt.case_values[i]);
+                }
+                free(node->data.switch_stmt.case_values);
+                free(node->data.switch_stmt.case_bodies);
+                break;
+
+            case AST_INDEX_ASSIGN:
+                ast_delete_stack_push(&stack, node->data.index_assign.right);
+                ast_delete_stack_push(&stack, node->data.index_assign.left);
+                break;
+
+            case AST_ADDRESS_OF:
+                ast_delete_stack_push(&stack, node->data.address_of.target);
+                break;
+
+            case AST_DEREF:
+                ast_delete_stack_push(&stack, node->data.deref.target);
+                break;
+
+            case AST_DEREF_ASSIGN:
+                ast_delete_stack_push(&stack, node->data.deref_assign.value);
+                ast_delete_stack_push(&stack, node->data.deref_assign.target);
+                break;
+
+            case AST_INC_OP:
+                ast_delete_stack_push(&stack, node->data.inc_op.target);
+                break;
+
+            default:
+                break;
+        }
+
+        free(node);
+    }
+
+    ast_delete_stack_free(&stack);
 }

@@ -85,6 +85,7 @@ static RuntimeValue m_array_inject(RuntimeValue target, RuntimeValue *args, int 
         arr->gc.external_size = sizeof(RuntimeValue) * (size_t)new_capacity;
     }
 
+    gc_write_barrier((GCObject*)arr, &args[0]);
     arr->elements[arr->count++] = args[0];
     orbit_touch_object((GCObject *)arr);
     return target;
@@ -104,6 +105,7 @@ static void arr_push(ManagedArray *arr, RuntimeValue v) {
         arr->capacity = new_capacity;
         arr->gc.external_size = sizeof(RuntimeValue) * (size_t)new_capacity;
     }
+    gc_write_barrier((GCObject*)arr, &v);
     arr->elements[arr->count++] = v;
 }
 

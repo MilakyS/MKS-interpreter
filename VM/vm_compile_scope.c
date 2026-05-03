@@ -374,6 +374,7 @@ static void ast_scan_local_safety(const ASTNode *node,
         case AST_BOOL:
         case AST_BREAK:
         case AST_CONTINUE:
+        case AST_INC_OP:
             return;
     }
 }
@@ -738,6 +739,7 @@ static void ast_scan_import_alias_safety(const ASTNode *node,
         case AST_BOOL:
         case AST_BREAK:
         case AST_CONTINUE:
+        case AST_INC_OP:
             return;
     }
 }

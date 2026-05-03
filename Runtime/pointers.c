@@ -1,6 +1,7 @@
 #include "pointers.h"
 
 #include "errors.h"
+#include "../GC/gc.h"
 
 RuntimeValue runtime_address_of_var(Environment *env, const char *name, unsigned int hash) {
     Environment *owner = NULL;
@@ -93,6 +94,7 @@ RuntimeValue runtime_pointer_write(ManagedPointer *ptr, RuntimeValue value) {
             if (ptr->as.var.entry == NULL) {
                 runtime_error("Pointer target variable no longer exists");
             }
+            gc_write_barrier((GCObject*)ptr->as.var.env, &value);
             ptr->as.var.entry->value = value;
             return value;
 
@@ -102,6 +104,7 @@ RuntimeValue runtime_pointer_write(ManagedPointer *ptr, RuntimeValue value) {
             if (arr == NULL || index < 0 || index >= arr->count) {
                 runtime_error("Array pointer index out of bounds");
             }
+            gc_write_barrier((GCObject*)arr, &value);
             arr->elements[index] = value;
             return value;
         }

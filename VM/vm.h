@@ -8,6 +8,7 @@
 #include "../Parser/AST.h"
 #include "../env/env.h"
 #include "../Runtime/value.h"
+#include "vm_predict.h"
 
 typedef enum {
     OP_CONSTANT,
@@ -23,11 +24,13 @@ typedef enum {
     OP_SET_GLOBAL,
     OP_SET_LOCAL,
     OP_INC_LOCAL,
+    OP_DEC_LOCAL,
     OP_ADD_LOCAL_CONST,
     OP_SUB_LOCAL_CONST,
     OP_MUL_LOCAL_CONST,
     OP_DIV_LOCAL_CONST,
     OP_ADD_LOCAL_LOCAL,
+    OP_INC_LOCAL_AND_LOOP,
     OP_STRING_APPEND_LOCAL_CONST,
     OP_BUILDER_START_LOCAL,
     OP_BUILDER_APPEND_LOCAL_CONST,
@@ -45,6 +48,7 @@ typedef enum {
     OP_GT,
     OP_LE,
     OP_GE,
+    OP_LT_LOCAL_LOCAL,
     OP_JUMP,
     OP_JUMP_IF_FALSE,
     OP_JUMP_IF_TRUE,
@@ -74,7 +78,8 @@ typedef enum {
     OP_CALL_NATIVE,
     OP_TEST_PASS,
     OP_POP,
-    OP_RETURN
+    OP_RETURN,
+    OP_INC_LOCAL_AND_JUMP_IF_LT_CONST
 } OpCode;
 
 typedef struct Chunk Chunk;
@@ -106,6 +111,10 @@ struct Chunk {
     int ast_ref_count;
     int ast_ref_capacity;
     const char *debug_name;
+
+    /* Prediction metadata (per-slot type hints) */
+    VMSlotPredict *slot_predictions;
+    int slot_predict_count;
 };
 
 typedef struct VMCallFrame {

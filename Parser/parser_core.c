@@ -64,6 +64,7 @@ static const char *token_type_name(enum TokenType type) {
         case TOKEN_SLASH: return "/";
         case TOKEN_MOD: return "%";
         case TOKEN_INCREMENT: return "++";
+        case TOKEN_DECREMENT: return "--";
         case TOKEN_BLOCK_START: return "->";
         case TOKEN_BLOCK_END: return "<-";
         case TOKEN_SEMICOLON: return ";";

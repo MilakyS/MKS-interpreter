@@ -1,0 +1,10 @@
+var s =: "";
+
+for (var i =: 0; i < 1000; i =: i + 1) ->
+    s =: s + "x";
+    if (i ?= 10) ->
+        break;
+    <-
+<-
+
+Writeln(s.len());

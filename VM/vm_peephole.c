@@ -61,6 +61,7 @@ static int get_opcode_len(uint8_t op) {
         case OP_GET_LOCAL:
         case OP_SET_LOCAL:
         case OP_INC_LOCAL:
+        case OP_DEC_LOCAL:
         case OP_CALL_NATIVE:
             return 2;
         case OP_DEFINE_FUNCTION:
@@ -69,7 +70,11 @@ static int get_opcode_len(uint8_t op) {
             return 5;
         case OP_CALL:
         case OP_CALL_METHOD:
+        case OP_INC_LOCAL_AND_LOOP:
             return 4;
+        case OP_INC_LOCAL_AND_JUMP_IF_LT_CONST:
+        case OP_JUMP_IF_LOCAL_LT_CONST_FALSE:
+            return 6;
         case OP_IMPORT:
             return 7;
         case OP_ADD_LOCAL_CONST:
@@ -83,12 +88,35 @@ static int get_opcode_len(uint8_t op) {
             return 2;
         case OP_BUILDER_APPEND_LOCAL_VALUE:
         case OP_ADD_LOCAL_LOCAL:
+        case OP_LT_LOCAL_LOCAL:
             return 3;
-        case OP_JUMP_IF_LOCAL_LT_CONST_FALSE:
-            return 6;
         default:
             return 1;
     }
+}
+
+static int try_match_lt_local_local(Chunk *chunk, int offset, uint8_t **out_new_code, int *out_new_len) {
+    // Detects: OP_GET_LOCAL slot1, OP_GET_LOCAL slot2, OP_LT
+    // Replaces with: OP_LT_LOCAL_LOCAL slot1 slot2
+    if (offset + 5 > chunk->count) return 0;
+
+    uint8_t *code = chunk->code;
+    if (code[offset] != OP_GET_LOCAL) return 0;
+    uint8_t slot1 = code[offset + 1];
+
+    if (code[offset + 2] != OP_GET_LOCAL) return 0;
+    uint8_t slot2 = code[offset + 3];
+
+    if (code[offset + 4] != OP_LT) return 0;
+
+    uint8_t *new_code = malloc(3);
+    new_code[0] = OP_LT_LOCAL_LOCAL;
+    new_code[1] = slot1;
+    new_code[2] = slot2;
+
+    *out_new_code = new_code;
+    *out_new_len = 3;
+    return 5;
 }
 
 static int try_match_add_local_const(Chunk *chunk, int offset, uint8_t **out_new_code, int *out_new_len) {
@@ -236,6 +264,63 @@ static int try_match_string_append_local_const(Chunk *chunk, int offset, uint8_t
     return 9;
 }
 
+static int try_match_inc_local_and_loop(Chunk *chunk, int offset, uint8_t **out_new_code, int *out_new_len) {
+    if (offset + 5 > chunk->count) return 0;
+
+    uint8_t *code = chunk->code;
+    if (code[offset] != OP_INC_LOCAL) return 0;
+    if (code[offset + 2] != OP_LOOP) return 0;
+
+    uint8_t slot = code[offset + 1];
+    uint8_t back_hi = code[offset + 3];
+    uint8_t back_lo = code[offset + 4];
+
+    uint8_t *new_code = malloc(4);
+    new_code[0] = OP_INC_LOCAL_AND_LOOP;
+    new_code[1] = slot;
+    new_code[2] = back_hi;
+    new_code[3] = back_lo;
+    *out_new_code = new_code;
+    *out_new_len = 4;
+    return 5;
+}
+
+static int try_match_jump_if_inc_local_loop(Chunk *chunk, int offset, uint8_t **out_new_code, int *out_new_len) {
+    // Detects: OP_JUMP_IF_LOCAL_LT_CONST_FALSE slot const_hi const_lo offset_hi offset_lo (6 bytes)
+    //          OP_INC_LOCAL slot (2 bytes)
+    //          OP_LOOP back_hi back_lo (3 bytes)
+    // Replaces with: OP_INC_LOCAL_AND_JUMP_IF_LT_CONST slot const_hi const_lo back_hi back_lo (6 bytes)
+
+    if (offset + 11 > chunk->count) return 0;
+
+    uint8_t *code = chunk->code;
+
+    if (code[offset] != OP_JUMP_IF_LOCAL_LT_CONST_FALSE) return 0;
+    uint8_t slot1 = code[offset + 1];
+    uint16_t const_idx = ((uint16_t)code[offset + 2] << 8) | code[offset + 3];
+
+    if (code[offset + 6] != OP_INC_LOCAL) return 0;
+    uint8_t slot2 = code[offset + 7];
+
+    if (code[offset + 8] != OP_LOOP) return 0;
+    uint16_t loop_back = ((uint16_t)code[offset + 9] << 8) | code[offset + 10];
+
+    if (slot1 != slot2) return 0;
+    if (!is_numeric_constant(chunk, const_idx)) return 0;
+
+    uint8_t *new_code = malloc(6);
+    new_code[0] = OP_INC_LOCAL_AND_JUMP_IF_LT_CONST;
+    new_code[1] = slot1;
+    new_code[2] = (uint8_t)(const_idx >> 8);
+    new_code[3] = (uint8_t)(const_idx & 0xff);
+    new_code[4] = (uint8_t)(loop_back >> 8);
+    new_code[5] = (uint8_t)(loop_back & 0xff);
+
+    *out_new_code = new_code;
+    *out_new_len = 6;
+    return 11;  // consumed 6 + 2 + 3 = 11 bytes
+}
+
 static void scan_for_patterns(Chunk *chunk, ReplacementList *replacements) {
     int offset = 0;
     while (offset < chunk->count) {
@@ -243,7 +328,19 @@ static void scan_for_patterns(Chunk *chunk, ReplacementList *replacements) {
         int new_len = 0;
         int matched_len = 0;
 
-        if ((matched_len = try_match_add_local_local(chunk, offset, &new_code, &new_len)) > 0) {
+        if ((matched_len = try_match_lt_local_local(chunk, offset, &new_code, &new_len)) > 0) {
+            replacement_list_add(replacements, offset, offset + matched_len, new_code, new_len);
+            offset += matched_len;
+        }
+        else if ((matched_len = try_match_jump_if_inc_local_loop(chunk, offset, &new_code, &new_len)) > 0) {
+            replacement_list_add(replacements, offset, offset + matched_len, new_code, new_len);
+            offset += matched_len;
+        }
+        else if ((matched_len = try_match_inc_local_and_loop(chunk, offset, &new_code, &new_len)) > 0) {
+            replacement_list_add(replacements, offset, offset + matched_len, new_code, new_len);
+            offset += matched_len;
+        }
+        else if ((matched_len = try_match_add_local_local(chunk, offset, &new_code, &new_len)) > 0) {
             replacement_list_add(replacements, offset, offset + matched_len, new_code, new_len);
             offset += matched_len;
         }
@@ -397,6 +494,37 @@ static void vm_peephole_optimize_chunk(Chunk *chunk) {
             new_code[new_pos + 1] = (uint8_t)(new_loop_back >> 8);
             new_code[new_pos + 2] = (uint8_t)(new_loop_back & 0xff);
             new_pos += 3;
+        } else if (op == OP_INC_LOCAL_AND_LOOP) {
+            uint16_t old_loop_back = ((uint16_t)new_code[new_pos + 2] << 8) | new_code[new_pos + 3];
+            // Find old instruction at this position
+            int search_old = 0;
+            int old_instr_pos = 0;
+            rep_idx = 0;
+            while (search_old < old_count) {
+                if (rep_idx < replacements.count && replacements.items[rep_idx].old_start == search_old) {
+                    if (offset_map[search_old] == new_pos) {
+                        old_instr_pos = search_old;
+                        break;
+                    }
+                    search_old = replacements.items[rep_idx].old_end;
+                    rep_idx++;
+                } else {
+                    if (offset_map[search_old] == new_pos) {
+                        old_instr_pos = search_old;
+                        break;
+                    }
+                    search_old += get_opcode_len(old_code[search_old]);
+                }
+            }
+
+            int old_loop_start = old_instr_pos + 5 - (int)old_loop_back;
+            if (old_loop_start < 0) old_loop_start = 0;
+            int new_loop_start = offset_map[old_loop_start];
+            int new_loop_back = new_pos + 4 - new_loop_start;
+
+            new_code[new_pos + 2] = (uint8_t)(new_loop_back >> 8);
+            new_code[new_pos + 3] = (uint8_t)(new_loop_back & 0xff);
+            new_pos += 4;
         } else if (op == OP_JUMP_IF_LOCAL_LT_CONST_FALSE) {
             uint16_t old_offset_delta = ((uint16_t)new_code[new_pos + 4] << 8) | new_code[new_pos + 5];
             int search_old = 0;
@@ -426,6 +554,39 @@ static void vm_peephole_optimize_chunk(Chunk *chunk) {
 
             new_code[new_pos + 4] = (uint8_t)(new_offset_delta >> 8);
             new_code[new_pos + 5] = (uint8_t)(new_offset_delta & 0xff);
+            new_pos += 6;
+        } else if (op == OP_INC_LOCAL_AND_JUMP_IF_LT_CONST) {
+            uint16_t stored_back = ((uint16_t)new_code[new_pos + 4] << 8) | new_code[new_pos + 5];
+            // Find old instruction at this position
+            int search_old = 0;
+            int old_instr_pos = 0;
+            rep_idx = 0;
+            while (search_old < old_count) {
+                if (rep_idx < replacements.count && replacements.items[rep_idx].old_start == search_old) {
+                    if (offset_map[search_old] == new_pos) {
+                        old_instr_pos = search_old;
+                        break;
+                    }
+                    search_old = replacements.items[rep_idx].old_end;
+                    rep_idx++;
+                } else {
+                    if (offset_map[search_old] == new_pos) {
+                        old_instr_pos = search_old;
+                        break;
+                    }
+                    search_old += get_opcode_len(old_code[search_old]);
+                }
+            }
+
+            // This came from fusing JUMP_IF (6) + INC_LOCAL (2) + LOOP (3) = 11 bytes
+            // The loop back offset is from OP_LOOP, which jumps from (old_instr_pos + 11) back 'stored_back' bytes
+            int old_loop_start = old_instr_pos + 11 - (int)stored_back;
+            if (old_loop_start < 0) old_loop_start = 0;
+            int new_loop_start = offset_map[old_loop_start];
+            int new_loop_back = new_pos + 6 - new_loop_start;
+
+            new_code[new_pos + 4] = (uint8_t)(new_loop_back >> 8);
+            new_code[new_pos + 5] = (uint8_t)(new_loop_back & 0xff);
             new_pos += 6;
         } else {
             new_pos += get_opcode_len(op);

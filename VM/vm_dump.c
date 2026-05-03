@@ -17,17 +17,20 @@ const char *vm_opcode_name(OpCode op) {
         case OP_SET_GLOBAL: return "OP_SET_NAME";
         case OP_SET_LOCAL: return "OP_SET_LOCAL";
         case OP_INC_LOCAL: return "OP_INC_LOCAL";
+        case OP_DEC_LOCAL: return "OP_DEC_LOCAL";
         case OP_ADD_LOCAL_CONST: return "OP_ADD_LOCAL_CONST";
         case OP_SUB_LOCAL_CONST: return "OP_SUB_LOCAL_CONST";
         case OP_MUL_LOCAL_CONST: return "OP_MUL_LOCAL_CONST";
         case OP_DIV_LOCAL_CONST: return "OP_DIV_LOCAL_CONST";
         case OP_STRING_APPEND_LOCAL_CONST: return "OP_STRING_APPEND_LOCAL_CONST";
         case OP_ADD_LOCAL_LOCAL: return "OP_ADD_LOCAL_LOCAL";
+        case OP_INC_LOCAL_AND_LOOP: return "OP_INC_LOCAL_AND_LOOP";
         case OP_BUILDER_START_LOCAL: return "OP_BUILDER_START_LOCAL";
         case OP_BUILDER_APPEND_LOCAL_CONST: return "OP_BUILDER_APPEND_LOCAL_CONST";
         case OP_BUILDER_APPEND_LOCAL_VALUE: return "OP_BUILDER_APPEND_LOCAL_VALUE";
         case OP_BUILDER_FINISH_LOCAL: return "OP_BUILDER_FINISH_LOCAL";
         case OP_JUMP_IF_LOCAL_LT_CONST_FALSE: return "OP_JUMP_IF_LOCAL_LT_CONST_FALSE";
+        case OP_INC_LOCAL_AND_JUMP_IF_LT_CONST: return "OP_INC_LOCAL_AND_JUMP_IF_LT_CONST";
         case OP_ADD: return "OP_ADD";
         case OP_SUB: return "OP_SUB";
         case OP_MUL: return "OP_MUL";
@@ -39,6 +42,7 @@ const char *vm_opcode_name(OpCode op) {
         case OP_GT: return "OP_GT";
         case OP_LE: return "OP_LE";
         case OP_GE: return "OP_GE";
+        case OP_LT_LOCAL_LOCAL: return "OP_LT_LOCAL_LOCAL";
         case OP_JUMP: return "OP_JUMP";
         case OP_JUMP_IF_FALSE: return "OP_JUMP_IF_FALSE";
         case OP_JUMP_IF_TRUE: return "OP_JUMP_IF_TRUE";
@@ -94,6 +98,7 @@ static int dump_chunk_impl(const Chunk *chunk, FILE *out, int indent) {
             case OP_GET_LOCAL:
             case OP_SET_LOCAL:
             case OP_INC_LOCAL:
+            case OP_DEC_LOCAL:
                 fprintf(out, " %u", (unsigned)chunk->code[offset + 1]);
                 offset += 2;
                 break;
@@ -161,6 +166,12 @@ static int dump_chunk_impl(const Chunk *chunk, FILE *out, int indent) {
                         (unsigned)chunk->code[offset + 2]);
                 offset += 3;
                 break;
+            case OP_LT_LOCAL_LOCAL:
+                fprintf(out, " slot1=%u slot2=%u",
+                        (unsigned)chunk->code[offset + 1],
+                        (unsigned)chunk->code[offset + 2]);
+                offset += 3;
+                break;
             case OP_ADD_LOCAL_CONST:
             case OP_SUB_LOCAL_CONST:
             case OP_MUL_LOCAL_CONST:
@@ -184,6 +195,19 @@ static int dump_chunk_impl(const Chunk *chunk, FILE *out, int indent) {
                 offset += 3;
                 break;
             case OP_JUMP_IF_LOCAL_LT_CONST_FALSE:
+                fprintf(out, " slot=%u const=%u offset=%u",
+                        (unsigned)chunk->code[offset + 1],
+                        (unsigned)((chunk->code[offset + 2] << 8) | chunk->code[offset + 3]),
+                        (unsigned)((chunk->code[offset + 4] << 8) | chunk->code[offset + 5]));
+                offset += 6;
+                break;
+            case OP_INC_LOCAL_AND_LOOP:
+                fprintf(out, " slot=%u offset=%u",
+                        (unsigned)chunk->code[offset + 1],
+                        (unsigned)((chunk->code[offset + 2] << 8) | chunk->code[offset + 3]));
+                offset += 4;
+                break;
+            case OP_INC_LOCAL_AND_JUMP_IF_LT_CONST:
                 fprintf(out, " slot=%u const=%u offset=%u",
                         (unsigned)chunk->code[offset + 1],
                         (unsigned)((chunk->code[offset + 2] << 8) | chunk->code[offset + 3]),

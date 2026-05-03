@@ -1,5 +1,6 @@
 #include "indexing.h"
 #include "errors.h"
+#include "../GC/gc.h"
 #include <stdlib.h>
 
 RuntimeValue runtime_get_index(RuntimeValue target, RuntimeValue index) {
@@ -64,6 +65,7 @@ RuntimeValue runtime_set_index(RuntimeValue target, RuntimeValue index, RuntimeV
         runtime_error("Array index %d out of bounds in assignment (size %d)", i, arr->count);
     }
 
+    gc_write_barrier((GCObject*)arr, &value);
     arr->elements[i] = value;
     return value;
 }

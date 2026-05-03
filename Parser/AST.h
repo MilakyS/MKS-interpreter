@@ -58,11 +58,13 @@ typedef enum ASTNodeType {
     AST_ADDRESS_OF,
     AST_DEREF,
     AST_DEREF_ASSIGN,
+    AST_INC_OP,
 } ASTNodeType;
 
 typedef struct ASTNode {
     ASTNodeType type;
     int line;
+    int column;
 
     union {
         NumberLiteral number;
@@ -245,6 +247,11 @@ typedef struct ASTNode {
         } export_stmt;
 
         struct {
+            struct ASTNode *target;
+            int is_dec;
+        } inc_op;
+
+        struct {
             bool has_iterator;
             char *iter_name;
             unsigned int iter_hash;
@@ -269,52 +276,53 @@ typedef struct ASTNode {
 } ASTNode;
 
 
-ASTNode *create_ast_ident(char *name, unsigned int id_hash, int line);
-ASTNode *create_ast_var_decl(ASTNode *value, int line, char *name, unsigned int id_hash);
-ASTNode *create_ast_assign(char *name, unsigned int id_hash, ASTNode *value, int line);
+ASTNode *create_ast_ident(char *name, unsigned int id_hash, int line, int col);
+ASTNode *create_ast_var_decl(ASTNode *value, int line, int col, char *name, unsigned int id_hash);
+ASTNode *create_ast_assign(char *name, unsigned int id_hash, ASTNode *value, int line, int col);
 
-ASTNode *create_ast_int(int64_t val, int line);
-ASTNode *create_ast_float(double val, int line);
-ASTNode *create_ast_num(double val, int line);
-ASTNode *create_ast_string(char *val, int line);
-ASTNode *create_ast_null(int line);
-ASTNode *create_ast_bool(bool value, int line);
-ASTNode *create_ast_array(ASTNode **elements, int count, int line);
+ASTNode *create_ast_int(int64_t val, int line, int col);
+ASTNode *create_ast_float(double val, int line, int col);
+ASTNode *create_ast_num(double val, int line, int col);
+ASTNode *create_ast_string(char *val, int line, int col);
+ASTNode *create_ast_null(int line, int col);
+ASTNode *create_ast_bool(bool value, int line, int col);
+ASTNode *create_ast_array(ASTNode **elements, int count, int line, int col);
 
-ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, int op, int line);
-ASTNode *create_ast_index(ASTNode *target, ASTNode *index, int line);
-ASTNode *create_ast_index_assign(ASTNode *left, ASTNode *right, int line);
-ASTNode *create_ast_address_of(ASTNode *target, int line);
-ASTNode *create_ast_deref(ASTNode *target, int line);
-ASTNode *create_ast_deref_assign(ASTNode *target, ASTNode *value, int line);
-ASTNode *create_ast_swap(ASTNode *l, ASTNode *r, int line);
-ASTNode *create_ast_test(char *name, ASTNode *body, int line);
-ASTNode *create_ast_obj_get(ASTNode *object, char *field, unsigned int hash, int line);
-ASTNode *create_ast_obj_set(ASTNode *object, char *field, unsigned int hash, ASTNode *value, int line);
+ASTNode *create_ast_binop(ASTNode *left, ASTNode *right, int op, int line, int col);
+ASTNode *create_ast_index(ASTNode *target, ASTNode *index, int line, int col);
+ASTNode *create_ast_index_assign(ASTNode *left, ASTNode *right, int line, int col);
+ASTNode *create_ast_address_of(ASTNode *target, int line, int col);
+ASTNode *create_ast_deref(ASTNode *target, int line, int col);
+ASTNode *create_ast_deref_assign(ASTNode *target, ASTNode *value, int line, int col);
+ASTNode *create_ast_inc_op(ASTNode *target, int is_dec, int line, int col);
+ASTNode *create_ast_swap(ASTNode *l, ASTNode *r, int line, int col);
+ASTNode *create_ast_test(char *name, ASTNode *body, int line, int col);
+ASTNode *create_ast_obj_get(ASTNode *object, char *field, unsigned int hash, int line, int col);
+ASTNode *create_ast_obj_set(ASTNode *object, char *field, unsigned int hash, ASTNode *value, int line, int col);
 
-ASTNode *create_ast_block(ASTNode **items, int count, int line);
-ASTNode *create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block, int line);
-ASTNode *create_while_block(ASTNode *condition, ASTNode *body, int line);
-ASTNode *create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNode *body, int line);
-ASTNode *create_ast_return(ASTNode *value, int line);
+ASTNode *create_ast_block(ASTNode **items, int count, int line, int col);
+ASTNode *create_if_block(ASTNode *condition, ASTNode *body, ASTNode *else_block, int line, int col);
+ASTNode *create_while_block(ASTNode *condition, ASTNode *body, int line, int col);
+ASTNode *create_ast_for(ASTNode *init, ASTNode *condition, ASTNode *step, ASTNode *body, int line, int col);
+ASTNode *create_ast_return(ASTNode *value, int line, int col);
 
-ASTNode *create_ast_func_decl(char *name, unsigned int name_hash, char **params,unsigned int *param_hashes, int param_count,ASTNode *body, int line);
-ASTNode *create_ast_func_call(char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line);
-ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line);
+ASTNode *create_ast_func_decl(char *name, unsigned int name_hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *body, int line, int col);
+ASTNode *create_ast_func_call(char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line, int col);
+ASTNode *create_ast_method_call(ASTNode *target, char *name, unsigned int id_hash, ASTNode **args, int arg_count, int line, int col);
 
-ASTNode *create_ast_using(char *path, char *alias, bool is_legacy_path, bool star_import, int line);
-ASTNode *create_ast_output(ASTNode **args, int count, bool is_newline, int line);
+ASTNode *create_ast_using(char *path, char *alias, bool is_legacy_path, bool star_import, int line, int col);
+ASTNode *create_ast_output(ASTNode **args, int count, bool is_newline, int line, int col);
 
-ASTNode *create_ast_entity(char *name, unsigned int hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *init_body, ASTNode **methods, int method_count, int line);
-ASTNode *create_ast_extend(int target_type, ASTNode **methods, int method_count, int line);
-ASTNode *create_ast_defer(ASTNode *body, int line);
-ASTNode *create_ast_watch(char *name, unsigned int hash, int line);
-ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int line);
-ASTNode *create_ast_break(int line);
-ASTNode *create_ast_continue(int line);
-ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, ASTNode *count_expr, ASTNode *body, int line);
-ASTNode *create_ast_switch(ASTNode *value, ASTNode **case_values, ASTNode **case_bodies, int case_count, ASTNode *default_body, int line);
-ASTNode *create_ast_export(ASTNode *decl, char *name_override, int line);
+ASTNode *create_ast_entity(char *name, unsigned int hash, char **params, unsigned int *param_hashes, int param_count, ASTNode *init_body, ASTNode **methods, int method_count, int line, int col);
+ASTNode *create_ast_extend(int target_type, ASTNode **methods, int method_count, int line, int col);
+ASTNode *create_ast_defer(ASTNode *body, int line, int col);
+ASTNode *create_ast_watch(char *name, unsigned int hash, int line, int col);
+ASTNode *create_ast_on_change(char *name, unsigned int hash, ASTNode *body, int line, int col);
+ASTNode *create_ast_break(int line, int col);
+ASTNode *create_ast_continue(int line, int col);
+ASTNode *create_ast_repeat(bool has_iter, char *iter, unsigned int iter_hash, ASTNode *count_expr, ASTNode *body, int line, int col);
+ASTNode *create_ast_switch(ASTNode *value, ASTNode **case_values, ASTNode **case_bodies, int case_count, ASTNode *default_body, int line, int col);
+ASTNode *create_ast_export(ASTNode *decl, char *name_override, int line, int col);
 
 
 void delete_ast_node(ASTNode *node);

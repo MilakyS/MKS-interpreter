@@ -121,6 +121,7 @@ void env_set_fast(Environment *env, const char *name, const unsigned int h, Runt
     EnvVar *current = env->buckets[index];
     while (current != NULL) {
         if (current->hash == h && strcmp(current->name, name) == 0) {
+            gc_write_barrier((GCObject*)env, &value);
             current->value = value;
             if (watch_has_any()) {
                 watch_trigger(name, h, env, &value);
@@ -141,6 +142,7 @@ void env_set_fast(Environment *env, const char *name, const unsigned int h, Runt
 
     new_var->name = env_strdup(name);
     new_var->hash = h;
+    gc_write_barrier((GCObject*)env, &value);
     new_var->value = value;
     new_var->next = env->buckets[final_index];
     env->buckets[final_index] = new_var;
@@ -242,6 +244,7 @@ void env_update_fast(Environment *env, const char *name, unsigned int h, Runtime
 
             while (current != NULL) {
                 if (current->hash == h && strcmp(current->name, name) == 0) {
+                    gc_write_barrier((GCObject*)cur_env, &value);
                     current->value = value;
                     if (watch_has_any()) {
                         watch_trigger(name, h, env, &value);

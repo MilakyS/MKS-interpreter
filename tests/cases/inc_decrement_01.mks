@@ -1,0 +1,7 @@
+var i =: 0;
+i++;
+Writeln(i);
+var j =: 5;
+j--;
+Writeln(j);
+for(var k =: 0; k < 3; k++) -> Writeln(k); <-

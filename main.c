@@ -16,6 +16,7 @@
 #include "Parser/parser.h"
 #include "Runtime/context.h"
 #include "Runtime/errors.h"
+#include "Runtime/profiler.h"
 #include "Runtime/runner.h"
 #include "Utils/file.h"
 
@@ -1188,10 +1189,31 @@ int main(const int argc, char **argv) {
             fprintf(stderr, "Usage: %s --profile <file.mks>\n", argv[0]);
             status = 1;
         } else {
-            status = mks_run_file(&root_context, argv[argi + 1], 1, 1);
+            status = mks_run_file(&root_context, argv[argi + 1], 1, PROFILE_COMPACT);
+        }
+    } else if (strcmp(argv[argi], "--vm-profile") == 0) {
+        if (argi + 1 >= argc) {
+            fprintf(stderr, "Usage: %s --vm-profile <file.mks>\n", argv[0]);
+            status = 1;
+        } else {
+            status = mks_run_file(&root_context, argv[argi + 1], 1, PROFILE_DETAILED);
+        }
+    } else if (strcmp(argv[argi], "--profile-json") == 0) {
+        if (argi + 1 >= argc) {
+            fprintf(stderr, "Usage: %s --profile-json <file.mks>\n", argv[0]);
+            status = 1;
+        } else {
+            status = mks_run_file(&root_context, argv[argi + 1], 1, PROFILE_JSON);
+        }
+    } else if (strcmp(argv[argi], "--profile-hot") == 0) {
+        if (argi + 1 >= argc) {
+            fprintf(stderr, "Usage: %s --profile-hot <file.mks>\n", argv[0]);
+            status = 1;
+        } else {
+            status = mks_run_file(&root_context, argv[argi + 1], 1, PROFILE_HOTSPOTS);
         }
     } else {
-        status = mks_run_file(&root_context, argv[argi], 1, 0);
+        status = mks_run_file(&root_context, argv[argi], 1, PROFILE_DISABLED);
     }
 
     const char *gc_stats = getenv("MKS_GC_STATS");

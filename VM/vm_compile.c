@@ -575,7 +575,7 @@ static bool compiler_emit_while(Compiler *compiler, ASTNode *node) {
 static bool compiler_emit_repeat(Compiler *compiler, ASTNode *node) {
     const int count_name = compiler_hidden_name_constant(compiler, "repeat_count");
     const int index_name = compiler_hidden_name_constant(compiler, "repeat_index");
-    const int use_local_slots = compiler->parent != NULL;
+    const int use_local_slots = 1;  /* Always use local slots for repeat counters for efficiency */
     const int count_slot = use_local_slots ? compiler_alloc_local_slot(compiler) : -1;
     const int index_slot = use_local_slots ? compiler_alloc_local_slot(compiler) : -1;
 
@@ -942,6 +942,25 @@ static bool compiler_emit_stmt(Compiler *compiler, ASTNode *node) {
                 }
             }
             chunk_write_byte(compiler->chunk, OP_POP);
+            return true;
+        }
+
+        case AST_INC_OP: {
+            const ASTNode *target = node->data.inc_op.target;
+            if (target == NULL || target->type != AST_IDENTIFIER) {
+                runtime_error("++ / -- requires an identifier as target");
+                return false;
+            }
+            LocalEntry *entry = compiler_lookup_local(compiler,
+                target->data.identifier.name,
+                target->data.identifier.id_hash);
+            if (entry == NULL) {
+                runtime_error("++ / -- only supported for local variables");
+                return false;
+            }
+            OpCode op = node->data.inc_op.is_dec ? OP_DEC_LOCAL : OP_INC_LOCAL;
+            chunk_write_byte(compiler->chunk, (uint8_t)op);
+            chunk_write_byte(compiler->chunk, (uint8_t)entry->slot);
             return true;
         }
 
