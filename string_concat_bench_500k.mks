@@ -1,5 +1,0 @@
-var s =: "";
-for (var i =: 0; i < 500000; i =: i + 1) ->
-    s =: s + "x";
-<-
-Writeln(s.len());
