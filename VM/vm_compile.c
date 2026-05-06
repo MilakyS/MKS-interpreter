@@ -46,6 +46,90 @@ static VMFunction *compiler_compile_body_chunk(Compiler *compiler,
 static bool compiler_register_entity_methods(Compiler *compiler, ASTNode *entity);
 static bool compiler_emit_var_decl_local(Compiler *compiler, ASTNode *node);
 
+static int compiler_opcode_size(const Chunk *chunk, int offset) {
+    const OpCode op = (OpCode)chunk->code[offset];
+    switch (op) {
+        case OP_CONSTANT:
+        case OP_DEFINE_GLOBAL:
+        case OP_EXPORT_GLOBAL:
+        case OP_GET_GLOBAL:
+        case OP_SET_GLOBAL:
+        case OP_TEST_PASS:
+        case OP_JUMP:
+        case OP_JUMP_IF_FALSE:
+        case OP_JUMP_IF_TRUE:
+        case OP_LOOP:
+        case OP_ARRAY_NEW:
+        case OP_GET_FIELD:
+        case OP_SET_FIELD:
+        case OP_WATCH:
+        case OP_ADDRESS_OF_VAR:
+        case OP_ADDRESS_OF_FIELD:
+        case OP_REGISTER_EXTENSION:
+        case OP_ADD_DEFER:
+            return 3;
+        case OP_DEFINE_LOCAL:
+        case OP_GET_LOCAL:
+        case OP_SET_LOCAL:
+        case OP_INC_LOCAL:
+        case OP_DEC_LOCAL:
+        case OP_CALL_SELF:
+        case OP_CALL_NATIVE:
+            return 2;
+        case OP_DEFINE_FUNCTION:
+        case OP_DEFINE_BLUEPRINT:
+        case OP_WATCH_HANDLER:
+        case OP_ADD_GLOBAL_CONST:
+            return 5;
+        case OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT:
+            return 8;
+        case OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT:
+            return 7;
+        case OP_CALL:
+        case OP_CALL_METHOD:
+        case OP_INC_LOCAL_AND_LOOP:
+            return 4;
+        case OP_INC_LOCAL_AND_JUMP_IF_LT_CONST:
+        case OP_JUMP_IF_LOCAL_LT_CONST_FALSE:
+            return 6;
+        case OP_IMPORT:
+            return 7;
+        case OP_ADD_LOCAL_CONST:
+        case OP_SUB_LOCAL_CONST:
+        case OP_MUL_LOCAL_CONST:
+        case OP_STRING_APPEND_LOCAL_CONST:
+        case OP_BUILDER_APPEND_LOCAL_CONST:
+            return 4;
+        case OP_DIV_LOCAL_CONST:
+        case OP_BUILDER_APPEND_LOCAL_VALUE:
+            return 3;
+        default:
+            return 1;
+    }
+}
+
+static int compiler_function_needs_call_env(const VMFunction *function) {
+    if (function == NULL || function->chunk == NULL) {
+        return 1;
+    }
+    for (int i = 0; i < function->arity; i++) {
+        if (function->param_local_slots[i] < 0) {
+            return 1;
+        }
+    }
+    for (int offset = 0; offset < function->chunk->count;) {
+        const OpCode op = (OpCode)function->chunk->code[offset];
+        if (op == OP_DEFINE_GLOBAL ||
+            op == OP_DEFINE_FUNCTION ||
+            op == OP_DEFINE_BLUEPRINT ||
+            op == OP_REGISTER_EXTENSION) {
+            return 1;
+        }
+        offset += compiler_opcode_size(function->chunk, offset);
+    }
+    return 0;
+}
+
 static RuntimeValue compiler_fold_binop(int op, RuntimeValue left, RuntimeValue right) {
     if (left.type != VAL_INT && left.type != VAL_FLOAT) return make_null();
     if (right.type != VAL_INT && right.type != VAL_FLOAT) return make_null();
@@ -169,6 +253,147 @@ static bool compiler_is_inc_local_pattern(const ASTNode *assign_node, LocalEntry
     return true;
 }
 
+static bool compiler_is_add_global_const_pattern(const ASTNode *assign_node,
+                                                 RuntimeValue *out_const,
+                                                 Compiler *compiler) {
+    if (assign_node == NULL || assign_node->type != AST_ASSIGN) {
+        return false;
+    }
+
+    ASTNode *rhs = assign_node->data.assign.value;
+    if (rhs == NULL || rhs->type != AST_BINOP || rhs->data.binop.op != TOKEN_PLUS) {
+        return false;
+    }
+
+    ASTNode *left = rhs->data.binop.left;
+    ASTNode *right = rhs->data.binop.right;
+    if (left == NULL || left->type != AST_IDENTIFIER || right == NULL || right->type != AST_NUMBER) {
+        return false;
+    }
+
+    if (!compiler_name_matches(left->data.identifier.name,
+                              left->data.identifier.id_hash,
+                              assign_node->data.assign.name,
+                              assign_node->data.assign.id_hash)) {
+        return false;
+    }
+
+    if (compiler_lookup_local(compiler, assign_node->data.assign.name, assign_node->data.assign.id_hash) != NULL) {
+        return false;
+    }
+
+    if (out_const != NULL) {
+        if (right->data.number.kind == NUMBER_INT) {
+            *out_const = make_int(right->data.number.int_value);
+        } else {
+            *out_const = make_float(right->data.number.float_value);
+        }
+    }
+    return true;
+}
+
+static bool compiler_is_counter_step_for_slot(Compiler *compiler, const ASTNode *step, uint8_t slot) {
+    if (step == NULL) {
+        return false;
+    }
+
+    if (step->type == AST_INC_OP && !step->data.inc_op.is_dec) {
+        const ASTNode *target = step->data.inc_op.target;
+        if (target == NULL || target->type != AST_IDENTIFIER) {
+            return false;
+        }
+
+        LocalEntry *entry = compiler_lookup_local(compiler,
+                                                  target->data.identifier.name,
+                                                  target->data.identifier.id_hash);
+        return entry != NULL && entry->slot == slot;
+    }
+
+    if (step->type != AST_ASSIGN) {
+        return false;
+    }
+
+    ASTNode *rhs = step->data.assign.value;
+    if (rhs == NULL || rhs->type != AST_BINOP || rhs->data.binop.op != TOKEN_PLUS) {
+        return false;
+    }
+
+    ASTNode *left = rhs->data.binop.left;
+    ASTNode *right = rhs->data.binop.right;
+    if (left == NULL || left->type != AST_IDENTIFIER || right == NULL || right->type != AST_NUMBER) {
+        return false;
+    }
+    if (right->data.number.kind != NUMBER_INT || right->data.number.int_value != 1) {
+        return false;
+    }
+    if (!compiler_name_matches(left->data.identifier.name,
+                              left->data.identifier.id_hash,
+                              step->data.assign.name,
+                              step->data.assign.id_hash)) {
+        return false;
+    }
+
+    LocalEntry *entry = compiler_lookup_local(compiler, step->data.assign.name, step->data.assign.id_hash);
+    return entry != NULL && entry->slot == slot;
+}
+
+static bool compiler_try_match_local_add_const(Compiler *compiler,
+                                               const ASTNode *node,
+                                               uint8_t *out_slot,
+                                               RuntimeValue *out_const) {
+    if (node == NULL) {
+        return false;
+    }
+
+    if (node->type == AST_INC_OP && !node->data.inc_op.is_dec) {
+        const ASTNode *target = node->data.inc_op.target;
+        if (target == NULL || target->type != AST_IDENTIFIER) {
+            return false;
+        }
+        LocalEntry *entry = compiler_lookup_local(compiler,
+                                                  target->data.identifier.name,
+                                                  target->data.identifier.id_hash);
+        if (entry == NULL) {
+            return false;
+        }
+        *out_slot = (uint8_t)entry->slot;
+        *out_const = make_int(1);
+        return true;
+    }
+
+    if (node->type != AST_ASSIGN) {
+        return false;
+    }
+
+    ASTNode *rhs = node->data.assign.value;
+    if (rhs == NULL || rhs->type != AST_BINOP || rhs->data.binop.op != TOKEN_PLUS) {
+        return false;
+    }
+
+    ASTNode *left = rhs->data.binop.left;
+    ASTNode *right = rhs->data.binop.right;
+    if (left == NULL || left->type != AST_IDENTIFIER || right == NULL || right->type != AST_NUMBER) {
+        return false;
+    }
+    if (!compiler_name_matches(left->data.identifier.name,
+                              left->data.identifier.id_hash,
+                              node->data.assign.name,
+                              node->data.assign.id_hash)) {
+        return false;
+    }
+
+    LocalEntry *entry = compiler_lookup_local(compiler, node->data.assign.name, node->data.assign.id_hash);
+    if (entry == NULL) {
+        return false;
+    }
+
+    *out_slot = (uint8_t)entry->slot;
+    *out_const = right->data.number.kind == NUMBER_INT
+        ? make_int(right->data.number.int_value)
+        : make_float(right->data.number.float_value);
+    return true;
+}
+
 static void compiler_emit_named_op(Compiler *compiler, OpCode op, const char *name) {
     const int constant = compiler_name_constant(compiler, name);
     chunk_write_byte(compiler->chunk, (uint8_t)op);
@@ -231,6 +456,7 @@ static VMFunction *compiler_compile_function_chunk(Compiler *compiler, ASTNode *
         function->param_local_slots[i] = -1;
     }
     function->self_local_slot = -1;
+    function->needs_call_env = 1;
     function->chunk->debug_name = node->data.func_decl.name;
 
     Compiler nested = {
@@ -261,6 +487,7 @@ static VMFunction *compiler_compile_function_chunk(Compiler *compiler, ASTNode *
     function->local_count = nested.local_count;
     chunk_write_byte(function->chunk, OP_NULL);
     chunk_write_byte(function->chunk, OP_RETURN);
+    function->needs_call_env = compiler_function_needs_call_env(function);
     return function;
 }
 
@@ -282,6 +509,7 @@ static VMFunction *compiler_compile_body_chunk(Compiler *compiler,
         function->param_local_slots[i] = -1;
     }
     function->self_local_slot = -1;
+    function->needs_call_env = 1;
     function->chunk->debug_name = function->debug_name;
 
     Compiler nested = {
@@ -311,6 +539,7 @@ static VMFunction *compiler_compile_body_chunk(Compiler *compiler,
     function->local_count = nested.local_count;
     chunk_write_byte(function->chunk, OP_NULL);
     chunk_write_byte(function->chunk, OP_RETURN);
+    function->needs_call_env = compiler_function_needs_call_env(function);
     return function;
 }
 
@@ -530,6 +759,42 @@ static bool compiler_emit_while(Compiler *compiler, ASTNode *node) {
     }
 
     const int loop_start = compiler->chunk->count;
+
+    if (!enable_builder) {
+        uint8_t counted_slot;
+        uint16_t counted_limit;
+        uint8_t target_slot;
+        RuntimeValue add_const = make_null();
+        ASTNode *body_add = NULL;
+        ASTNode *body_step = NULL;
+        if (node->data.while_block.body != NULL &&
+            node->data.while_block.body->type == AST_BLOCK &&
+            node->data.while_block.body->data.block.count == 2) {
+            body_add = node->data.while_block.body->data.block.items[0];
+            body_step = node->data.while_block.body->data.block.items[1];
+        }
+        if (body_add != NULL &&
+            compiler_try_match_counted_loop(compiler, node->data.while_block.condition, &counted_slot, &counted_limit) &&
+            compiler_is_counter_step_for_slot(compiler, body_step, counted_slot)) {
+            if (compiler_try_match_local_add_const(compiler, body_add, &target_slot, &add_const) &&
+                target_slot != counted_slot) {
+                chunk_write_byte(compiler->chunk, OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT);
+                chunk_write_byte(compiler->chunk, target_slot);
+                chunk_write_byte(compiler->chunk, counted_slot);
+                chunk_write_u16(compiler->chunk, counted_limit);
+                chunk_write_u16(compiler->chunk, (uint16_t)chunk_add_constant(compiler->chunk, add_const));
+                return true;
+            }
+            if (compiler_is_add_global_const_pattern(body_add, &add_const, compiler)) {
+                chunk_write_byte(compiler->chunk, OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT);
+                chunk_write_u16(compiler->chunk, (uint16_t)compiler_name_constant(compiler, body_add->data.assign.name));
+                chunk_write_byte(compiler->chunk, counted_slot);
+                chunk_write_u16(compiler->chunk, counted_limit);
+                chunk_write_u16(compiler->chunk, (uint16_t)chunk_add_constant(compiler->chunk, add_const));
+                return true;
+            }
+        }
+    }
 
     int exit_jump = -1;
 
@@ -758,7 +1023,7 @@ static bool compiler_emit_for(Compiler *compiler, ASTNode *node) {
         const int can_localize_init =
             init->type == AST_VAR_DECL &&
             compiler_can_use_fast_locals(compiler) &&
-            !ast_name_must_remain_env_backed(compiler, init) &&
+            !ast_name_must_remain_env_backed_in_node(compiler, init, node) &&
             compiler_lookup_local(compiler, init->data.var_decl.name, init->data.var_decl.id_hash) == NULL &&
             compiler_can_alloc_local(compiler);
 
@@ -798,6 +1063,40 @@ static bool compiler_emit_for(Compiler *compiler, ASTNode *node) {
     }
 
     const int loop_start = compiler->chunk->count;
+
+    if (!enable_builder && node->data.for_block.condition != NULL) {
+        uint8_t counted_slot;
+        uint16_t counted_limit;
+        uint8_t target_slot;
+        RuntimeValue add_const = make_null();
+        if (compiler_try_match_counted_loop(compiler, node->data.for_block.condition, &counted_slot, &counted_limit) &&
+            pattern_check != NULL &&
+            compiler_is_counter_step_for_slot(compiler, node->data.for_block.step, counted_slot)) {
+            if (compiler_try_match_local_add_const(compiler, pattern_check, &target_slot, &add_const) &&
+                target_slot != counted_slot) {
+                chunk_write_byte(compiler->chunk, OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT);
+                chunk_write_byte(compiler->chunk, target_slot);
+                chunk_write_byte(compiler->chunk, counted_slot);
+                chunk_write_u16(compiler->chunk, counted_limit);
+                chunk_write_u16(compiler->chunk, (uint16_t)chunk_add_constant(compiler->chunk, add_const));
+                compiler->local_count = scoped_local_base;
+                compiler->env_scope_depth--;
+                chunk_write_byte(compiler->chunk, OP_POP_ENV);
+                return true;
+            }
+            if (compiler_is_add_global_const_pattern(pattern_check, &add_const, compiler)) {
+                chunk_write_byte(compiler->chunk, OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT);
+                chunk_write_u16(compiler->chunk, (uint16_t)compiler_name_constant(compiler, pattern_check->data.assign.name));
+                chunk_write_byte(compiler->chunk, counted_slot);
+                chunk_write_u16(compiler->chunk, counted_limit);
+                chunk_write_u16(compiler->chunk, (uint16_t)chunk_add_constant(compiler->chunk, add_const));
+                compiler->local_count = scoped_local_base;
+                compiler->env_scope_depth--;
+                chunk_write_byte(compiler->chunk, OP_POP_ENV);
+                return true;
+            }
+        }
+    }
 
     int exit_jump = -1;
     if (node->data.for_block.condition != NULL) {
@@ -895,6 +1194,14 @@ static bool compiler_emit_stmt(Compiler *compiler, ASTNode *node) {
                 return true;
             }
 
+            RuntimeValue add_const = make_null();
+            if (compiler_is_add_global_const_pattern(node, &add_const, compiler)) {
+                chunk_write_byte(compiler->chunk, OP_ADD_GLOBAL_CONST);
+                chunk_write_u16(compiler->chunk, (uint16_t)compiler_name_constant(compiler, node->data.assign.name));
+                chunk_write_u16(compiler->chunk, (uint16_t)chunk_add_constant(compiler->chunk, add_const));
+                return true;
+            }
+
             LocalEntry *str_append_entry = NULL;
             if (compiler->loop != NULL && compiler->loop->builder_active && compiler_is_string_append_pattern(node, &str_append_entry, compiler)) {
                 uint8_t slot = (uint8_t)str_append_entry->slot;
@@ -955,8 +1262,14 @@ static bool compiler_emit_stmt(Compiler *compiler, ASTNode *node) {
                 target->data.identifier.name,
                 target->data.identifier.id_hash);
             if (entry == NULL) {
-                runtime_error("++ / -- only supported for local variables");
-                return false;
+                compiler_emit_named_op(compiler, OP_GET_GLOBAL, target->data.identifier.name);
+                const int one_idx = chunk_add_constant(compiler->chunk, make_int(1));
+                chunk_write_byte(compiler->chunk, OP_CONSTANT);
+                chunk_write_u16(compiler->chunk, (uint16_t)one_idx);
+                chunk_write_byte(compiler->chunk, node->data.inc_op.is_dec ? OP_SUB : OP_ADD);
+                compiler_emit_named_op(compiler, OP_SET_GLOBAL, target->data.identifier.name);
+                chunk_write_byte(compiler->chunk, OP_POP);
+                return true;
             }
             OpCode op = node->data.inc_op.is_dec ? OP_DEC_LOCAL : OP_INC_LOCAL;
             chunk_write_byte(compiler->chunk, (uint8_t)op);
@@ -1327,6 +1640,16 @@ static bool compiler_emit_expr(Compiler *compiler, ASTNode *node) {
                 if (!compiler_emit_expr(compiler, node->data.func_call.args[i])) {
                     return false;
                 }
+            }
+            if (compiler->function_decl != NULL &&
+                compiler_name_matches(node->data.func_call.name,
+                                      node->data.func_call.id_hash,
+                                      compiler->function_decl->data.func_decl.name,
+                                      compiler->function_decl->data.func_decl.name_hash) &&
+                compiler_lookup_local(compiler, node->data.func_call.name, node->data.func_call.id_hash) == NULL) {
+                chunk_write_byte(compiler->chunk, OP_CALL_SELF);
+                chunk_write_byte(compiler->chunk, (uint8_t)arg_count);
+                return true;
             }
             chunk_write_byte(compiler->chunk, OP_CALL);
             chunk_write_u16(compiler->chunk, (uint16_t)compiler_name_constant(compiler, node->data.func_call.name));

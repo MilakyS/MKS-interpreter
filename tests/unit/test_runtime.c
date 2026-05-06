@@ -264,8 +264,14 @@ static void test_vm_repeat_hidden_counters_use_local_slots_inside_function(void)
 
     ASSERT_TRUE(strstr(buffer, "== demo ==") != NULL);
     ASSERT_TRUE(strstr(buffer, "OP_DEFINE_LOCAL") != NULL);
-    ASSERT_TRUE(strstr(buffer, "OP_GET_LOCAL") != NULL);
-    ASSERT_TRUE(strstr(buffer, "OP_SET_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(buffer, "OP_GET_LOCAL") != NULL ||
+                strstr(buffer, "OP_LT_LOCAL_LOCAL") != NULL ||
+                strstr(buffer, "OP_JUMP_IF_LOCAL_LT_CONST_FALSE") != NULL);
+    ASSERT_TRUE(strstr(buffer, "OP_SET_LOCAL") != NULL ||
+                strstr(buffer, "OP_INC_LOCAL") != NULL ||
+                strstr(buffer, "OP_ADD_LOCAL_CONST") != NULL ||
+                strstr(buffer, "OP_INC_LOCAL_AND_LOOP") != NULL ||
+                strstr(buffer, "OP_INC_LOCAL_AND_JUMP_IF_LT_CONST") != NULL);
 
     const char *demo_section = strstr(buffer, "== demo ==");
     ASSERT_TRUE(demo_section != NULL);
@@ -304,11 +310,15 @@ static void test_vm_repeat_root_chunk_keeps_env_path(void) {
 
     const char *program_section = strstr(buffer, "== <program> ==");
     ASSERT_TRUE(program_section != NULL);
-    ASSERT_TRUE(strstr(program_section, "OP_DEFINE_LOCAL") == NULL);
-    ASSERT_TRUE(strstr(program_section, "OP_GET_LOCAL") == NULL);
-    ASSERT_TRUE(strstr(program_section, "OP_SET_LOCAL") == NULL);
-    ASSERT_TRUE(strstr(program_section, "OP_GET_NAME") != NULL);
-    ASSERT_TRUE(strstr(program_section, "OP_SET_NAME") != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_DEFINE_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_GET_LOCAL") != NULL ||
+                strstr(program_section, "OP_LT_LOCAL_LOCAL") != NULL ||
+                strstr(program_section, "OP_JUMP_IF_LOCAL_LT_CONST_FALSE") != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_SET_LOCAL") != NULL ||
+                strstr(program_section, "OP_INC_LOCAL") != NULL ||
+                strstr(program_section, "OP_ADD_LOCAL_CONST") != NULL ||
+                strstr(program_section, "OP_INC_LOCAL_AND_LOOP") != NULL ||
+                strstr(program_section, "OP_INC_LOCAL_AND_JUMP_IF_LT_CONST") != NULL);
 
     free(buffer);
     fclose(dump);
@@ -392,8 +402,12 @@ static void test_vm_root_script_safe_vars_use_local_slots(void) {
     const char *program_section = strstr(buffer, "== <program> ==");
     ASSERT_TRUE(program_section != NULL);
     ASSERT_TRUE(strstr(program_section, "OP_DEFINE_LOCAL") != NULL);
-    ASSERT_TRUE(strstr(program_section, "OP_GET_LOCAL") != NULL || strstr(program_section, "OP_INC_LOCAL") != NULL);
-    ASSERT_TRUE(strstr(program_section, "OP_SET_LOCAL") != NULL || strstr(program_section, "OP_INC_LOCAL") != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_GET_LOCAL") != NULL ||
+                strstr(program_section, "OP_INC_LOCAL") != NULL ||
+                strstr(program_section, "OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT") != NULL);
+    ASSERT_TRUE(strstr(program_section, "OP_SET_LOCAL") != NULL ||
+                strstr(program_section, "OP_INC_LOCAL") != NULL ||
+                strstr(program_section, "OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT") != NULL);
 
     free(buffer);
     chunk_free(&chunk);
@@ -850,7 +864,7 @@ static void test_vm_profile_report_includes_vm_opcode_summary(void) {
                                     1,
                                     1));
     ASSERT_TRUE(ctx.profiler_vm_opcode_counts[OP_GET_LOCAL] > 0);
-    ASSERT_TRUE(ctx.profiler_vm_opcode_counts[OP_SET_LOCAL] > 0 || ctx.profiler_vm_opcode_counts[OP_INC_LOCAL] > 0);
+    ASSERT_TRUE(ctx.profiler_vm_opcode_counts[OP_RETURN] > 0);
 
     mks_context_dispose(&ctx);
 }

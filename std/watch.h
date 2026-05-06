@@ -19,6 +19,15 @@ int watch_has_any(void);
 /* Trigger handlers; value may be NULL when unknown. */
 void watch_trigger(const char *name, unsigned int hash, Environment *env, const RuntimeValue *value);
 
+/* Optimized trigger for monotonic integer bulk updates. Returns 1 when handled. */
+int watch_trigger_int_add_range(const char *name,
+                                unsigned int hash,
+                                Environment *env,
+                                RuntimeValue *slot,
+                                int64_t start,
+                                int64_t step,
+                                int64_t count);
+
 void watch_clear_all(void);
 
 /* Native std module entry point. */

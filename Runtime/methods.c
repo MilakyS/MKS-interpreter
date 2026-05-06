@@ -224,6 +224,7 @@ static MethodEntry array_methods[] = {
     {"size",    M_HASH_SIZE,    m_array_size},
     {"len",     M_HASH_LEN,     m_array_size},
     {"inject",  M_HASH_INJECT,  m_array_inject},
+    {"push",    M_HASH_PUSH,    m_array_inject},
     {"eject",   M_HASH_EJECT,   m_array_eject},
     {"pull",    M_HASH_PULL,    m_array_pull},
     {"exclude", M_HASH_EXCLUDE, m_array_exclude},

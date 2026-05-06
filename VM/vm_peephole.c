@@ -62,12 +62,18 @@ static int get_opcode_len(uint8_t op) {
         case OP_SET_LOCAL:
         case OP_INC_LOCAL:
         case OP_DEC_LOCAL:
+        case OP_CALL_SELF:
         case OP_CALL_NATIVE:
             return 2;
         case OP_DEFINE_FUNCTION:
         case OP_DEFINE_BLUEPRINT:
         case OP_WATCH_HANDLER:
+        case OP_ADD_GLOBAL_CONST:
             return 5;
+        case OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT:
+            return 8;
+        case OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT:
+            return 7;
         case OP_CALL:
         case OP_CALL_METHOD:
         case OP_INC_LOCAL_AND_LOOP:

@@ -6,6 +6,7 @@
 #include "../Runtime/functions.h"
 #include "../Utils/hash.h"
 #include "../GC/gc.h"
+#include "../Lexer/lexer.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -116,6 +117,106 @@ void watch_trigger(const char *name, unsigned int hash, Environment *env, const 
         }
         cur = cur->next;
     }
+}
+
+static const ASTNode *watch_unwrap_single_block(const ASTNode *node) {
+    if (node != NULL && node->type == AST_BLOCK && node->data.block.count == 1) {
+        return node->data.block.items[0];
+    }
+    return node;
+}
+
+static int watch_match_mod_eq_filter(const ASTNode *body,
+                                     const char *name,
+                                     unsigned int hash,
+                                     int64_t *mod_out,
+                                     int64_t *eq_out) {
+    const ASTNode *stmt = watch_unwrap_single_block(body);
+    if (stmt == NULL || stmt->type != AST_IF_BLOCK || stmt->data.if_block.else_body != NULL) {
+        return 0;
+    }
+
+    const ASTNode *condition = stmt->data.if_block.condition;
+    if (condition == NULL || condition->type != AST_BINOP || condition->data.binop.op != TOKEN_EQ) {
+        return 0;
+    }
+
+    const ASTNode *left = condition->data.binop.left;
+    const ASTNode *right = condition->data.binop.right;
+    if (left == NULL || right == NULL || right->type != AST_NUMBER || right->data.number.kind != NUMBER_INT) {
+        return 0;
+    }
+    if (left->type != AST_BINOP || left->data.binop.op != TOKEN_MOD) {
+        return 0;
+    }
+
+    const ASTNode *mod_left = left->data.binop.left;
+    const ASTNode *mod_right = left->data.binop.right;
+    if (mod_left == NULL || mod_left->type != AST_IDENTIFIER ||
+        mod_right == NULL || mod_right->type != AST_NUMBER ||
+        mod_right->data.number.kind != NUMBER_INT) {
+        return 0;
+    }
+    if (mod_left->data.identifier.id_hash != hash || strcmp(mod_left->data.identifier.name, name) != 0) {
+        return 0;
+    }
+    if (mod_right->data.number.int_value == 0) {
+        return 0;
+    }
+
+    *mod_out = mod_right->data.number.int_value;
+    *eq_out = right->data.number.int_value;
+    return 1;
+}
+
+int watch_trigger_int_add_range(const char *name,
+                                unsigned int hash,
+                                Environment *env,
+                                RuntimeValue *slot,
+                                int64_t start,
+                                int64_t step,
+                                int64_t count) {
+    if (watch_head == NULL) {
+        return 1;
+    }
+    if (slot == NULL || slot->type != VAL_INT || step <= 0 || count < 0) {
+        return 0;
+    }
+
+    for (WatchHandler *cur = watch_head; cur != NULL; cur = cur->next) {
+        if (cur->hash != hash || strcmp(cur->name, name) != 0) {
+            continue;
+        }
+        if (cur->body == NULL) {
+            if (cur->callable.type != VAL_NULL) {
+                return 0;
+            }
+            continue;
+        }
+        int64_t mod = 0;
+        int64_t eq = 0;
+        if (!watch_match_mod_eq_filter(cur->body, name, hash, &mod, &eq)) {
+            return 0;
+        }
+    }
+
+    for (WatchHandler *cur = watch_head; cur != NULL; cur = cur->next) {
+        if (cur->hash != hash || strcmp(cur->name, name) != 0 || cur->body == NULL) {
+            continue;
+        }
+
+        int64_t mod = 0;
+        int64_t eq = 0;
+        (void)watch_match_mod_eq_filter(cur->body, name, hash, &mod, &eq);
+        for (int64_t i = 1; i <= count; i++) {
+            const int64_t current = start + step * i;
+            if (current % mod == eq) {
+                slot->data.int_value = current;
+                eval(cur->body, cur->env ? cur->env : env);
+            }
+        }
+    }
+    return 1;
 }
 
 void watch_clear_all(void) {

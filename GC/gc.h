@@ -56,7 +56,7 @@ typedef struct GCObject {
 #define MAX_ENV_ROOTS 4096
 #define MAX_PINNED_ROOTS 2048
 #define MAX_PINNED_ENV_ROOTS 4096
-#define MAX_ROOT_SPANS 256
+#define GC_INITIAL_ROOT_SPANS 256
 
 typedef struct {
     GCObject *head;
@@ -84,8 +84,9 @@ typedef struct {
     struct Environment *env_roots[MAX_ENV_ROOTS];
     struct RuntimeValue *pinned_roots[MAX_PINNED_ROOTS];
     struct Environment *pinned_env_roots[MAX_PINNED_ENV_ROOTS];
-    struct RuntimeValue *root_spans[MAX_ROOT_SPANS];
-    int root_span_lengths[MAX_ROOT_SPANS];
+    struct RuntimeValue **root_spans;
+    int *root_span_lengths;
+    int root_span_capacity;
     int roots_count;
     int env_roots_count;
     int pinned_roots_count;
@@ -123,6 +124,7 @@ void gc_resume(void);
 void gc_push_root(struct RuntimeValue *val);
 void gc_pop_root(void);
 void gc_push_root_span(struct RuntimeValue *values, int count);
+void gc_update_root_span(struct RuntimeValue *old_values, struct RuntimeValue *new_values, int new_count);
 void gc_pop_root_span(void);
 void gc_pin_root(struct RuntimeValue *val);
 void gc_unpin_root(struct RuntimeValue *val);

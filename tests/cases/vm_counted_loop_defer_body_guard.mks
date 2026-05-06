@@ -1,0 +1,11 @@
+var x =: 0;
+
+fnc main() ->
+    for (var i =: 0; i < 3; i++) ->
+        defer ->
+            Writeln("defer");
+        <-
+        x =: x + 1;
+    <-
+    Writeln("done", x);
+<-

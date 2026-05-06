@@ -12,6 +12,8 @@ struct EnvVar;
 struct ASTNode;
 struct Environment;
 struct MKSContext;
+struct Chunk;
+struct VMFunction;
 
 typedef struct RuntimeValue RuntimeValue;
 
@@ -108,6 +110,8 @@ struct RuntimeValue {
         struct {
             struct ASTNode *node;
             struct Environment *closure_env;
+            struct Chunk *root_chunk;
+            struct VMFunction *vm_function;
         } func;
 
         NativeWithCtx native;

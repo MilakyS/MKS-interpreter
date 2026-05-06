@@ -4,6 +4,7 @@
 
 #define M_HASH_SIZE 0x7c9dede0  // "size"
 #define M_HASH_INJECT 0x4cf1142  // "inject"
+#define M_HASH_PUSH 0x7c9c7ae5  // "push"
 #define M_HASH_EJECT 0xf5e8610  // "eject"
 #define M_HASH_PULL 0x7c9c7a02  // "pull"
 #define M_HASH_EXCLUDE 0x81a152cf  // "exclude"

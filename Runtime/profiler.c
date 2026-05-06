@@ -47,8 +47,8 @@ void profiler_enable(ProfileLevel level) {
     clock_gettime(CLOCK_MONOTONIC, &prof->start_time);
     ctx->profiler_start = prof->start_time;
 
-    for (int i = 0; i < 64; i++) ctx->profiler_counts[i] = 0;
-    for (int i = 0; i < 64; i++) ctx->profiler_vm_opcode_counts[i] = 0;
+    for (int i = 0; i < 96; i++) ctx->profiler_counts[i] = 0;
+    for (int i = 0; i < 96; i++) ctx->profiler_vm_opcode_counts[i] = 0;
     for (int i = 0; i < 16; i++) ctx->profiler_vm_hot_counts[i] = 0;
 }
 
@@ -69,8 +69,8 @@ void profiler_on_eval(ASTNodeType type) {
 void profiler_on_vm_opcode(int opcode) {
     MKSContext *ctx = mks_context_current();
     if (!ctx->profiler_enabled) return;
-    if (opcode >= 0 && opcode < 78) {
-        ctx->profiler_vm_opcode_counts[opcode < 64 ? opcode : 63]++;
+    if (opcode >= 0 && opcode < 96) {
+        ctx->profiler_vm_opcode_counts[opcode]++;
         MksProfiler *prof = get_profiler();
         prof->opcodes[opcode].count++;
         prof->instructions++;

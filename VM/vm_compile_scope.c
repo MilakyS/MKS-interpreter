@@ -415,6 +415,44 @@ int ast_name_must_remain_env_backed(Compiler *compiler, const ASTNode *decl_node
     return scan.unsafe;
 }
 
+int ast_name_must_remain_env_backed_in_node(Compiler *compiler,
+                                            const ASTNode *decl_node,
+                                            const ASTNode *scope_node) {
+    if (compiler == NULL || decl_node == NULL || scope_node == NULL) {
+        return 1;
+    }
+    if (decl_node->type != AST_VAR_DECL) {
+        return 1;
+    }
+
+    const char *name = decl_node->data.var_decl.name;
+    const unsigned int hash = decl_node->data.var_decl.id_hash;
+    if (name == NULL || strcmp(name, "self") == 0) {
+        return 1;
+    }
+
+    if (compiler->function_decl != NULL) {
+        for (int i = 0; i < compiler->function_decl->data.func_decl.param_count; i++) {
+            if (compiler_name_matches(compiler->function_decl->data.func_decl.params[i],
+                                      compiler->function_decl->data.func_decl.param_hashes[i],
+                                      name,
+                                      hash)) {
+                return 1;
+            }
+        }
+    }
+
+    LocalSafetyScan scan = {
+        .skip_decl = decl_node,
+        .name = name,
+        .hash = hash,
+        .duplicate_var_decl_count = 0,
+        .unsafe = 0,
+    };
+    ast_scan_local_safety(scope_node, &scan, 0, 0);
+    return scan.unsafe;
+}
+
 static int compiler_param_must_remain_env_backed(Compiler *compiler,
                                                  const char *name,
                                                  unsigned int hash) {

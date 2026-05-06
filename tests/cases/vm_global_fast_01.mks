@@ -1,0 +1,28 @@
+var counter =: 0;
+var total =: 0;
+counter =: counter + 1;
+counter =: counter + 1;
+counter =: counter + 1;
+total =: total + counter;
+Writeln(counter);
+Writeln(total);
+
+var i =: 0;
+var limit =: 5;
+var sum =: 0;
+while(i < limit) ->
+    sum =: sum + i;
+    i =: i + 1;
+<-
+Writeln(sum);
+Writeln(i);
+
+var x =: 42;
+var p =: &x;
+*p =: 100;
+Writeln(x);
+
+var result =: 0;
+var n =: 3;
+Writeln(result);
+Writeln(n);

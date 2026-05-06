@@ -23,6 +23,9 @@ typedef enum {
     OP_GET_LOCAL,
     OP_SET_GLOBAL,
     OP_SET_LOCAL,
+    OP_ADD_GLOBAL_CONST,
+    OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT,
+    OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT,
     OP_INC_LOCAL,
     OP_DEC_LOCAL,
     OP_ADD_LOCAL_CONST,
@@ -74,6 +77,7 @@ typedef enum {
     OP_SWAP_PTRS,
     OP_IMPORT,
     OP_CALL,
+    OP_CALL_SELF,
     OP_CALL_METHOD,
     OP_CALL_NATIVE,
     OP_TEST_PASS,
@@ -91,6 +95,7 @@ typedef struct VMFunction {
     int local_count;
     int param_local_slots[64];
     int self_local_slot;
+    int needs_call_env;
     Chunk *chunk;
 } VMFunction;
 
@@ -115,6 +120,11 @@ struct Chunk {
     /* Prediction metadata (per-slot type hints) */
     VMSlotPredict *slot_predictions;
     int slot_predict_count;
+
+    EnvVar **global_cache_entries;
+    Environment **global_cache_owners;
+    size_t *global_cache_epochs;
+    int global_cache_capacity;
 };
 
 typedef struct VMCallFrame {
@@ -132,16 +142,19 @@ typedef struct VMCallFrame {
     int defer_scope_starts[64];
     int defer_scope_depth;
     int defer_count;
+    VMFunction *function;
 } VMCallFrame;
 
 typedef struct {
-    RuntimeValue stack[1024];
+    RuntimeValue *stack;
     RuntimeValue *sp;
+    int stack_capacity;
 
     Chunk *root_chunk;
     Environment *global_env;
-    VMCallFrame frames[64];
+    VMCallFrame **frames;
     int frame_count;
+    int frame_capacity;
     int gc_tick;
 } VM;
 

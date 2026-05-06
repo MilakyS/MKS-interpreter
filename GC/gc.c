@@ -260,6 +260,8 @@ void gc_set_debug(const int enabled) {
 }
 
 void gc_init(const size_t initial_threshold) {
+    RuntimeValue **old_root_spans = mks_gc.root_spans;
+    int *old_root_span_lengths = mks_gc.root_span_lengths;
     mks_gc.head = NULL;
     mks_gc.allocated_bytes = 0;
     mks_gc.threshold = initial_threshold;
@@ -282,6 +284,14 @@ void gc_init(const size_t initial_threshold) {
     mks_gc.pinned_roots_count = 0;
     mks_gc.pinned_env_roots_count = 0;
     mks_gc.root_span_count = 0;
+    mks_gc.root_span_capacity = GC_INITIAL_ROOT_SPANS;
+    mks_gc.root_spans = (RuntimeValue **)realloc(old_root_spans,
+                                                 sizeof(RuntimeValue *) * (size_t)mks_gc.root_span_capacity);
+    mks_gc.root_span_lengths = (int *)realloc(old_root_span_lengths,
+                                             sizeof(int) * (size_t)mks_gc.root_span_capacity);
+    if (mks_gc.root_spans == NULL || mks_gc.root_span_lengths == NULL) {
+        runtime_error("Out of memory initializing GC root spans");
+    }
     mks_gc.remembered_set_count = 0;
     mks_gc.debug_enabled = 0;
 }
@@ -354,12 +364,39 @@ void gc_push_root_span(RuntimeValue *values, int count) {
     if (values == NULL || count <= 0) {
         return;
     }
-    if (mks_gc.root_span_count >= MAX_ROOT_SPANS) {
-        runtime_error("GC root span stack overflow");
+    if (mks_gc.root_span_count >= mks_gc.root_span_capacity) {
+        int new_capacity = mks_gc.root_span_capacity == 0
+            ? GC_INITIAL_ROOT_SPANS
+            : mks_gc.root_span_capacity * 2;
+        RuntimeValue **new_spans = (RuntimeValue **)realloc(
+            mks_gc.root_spans,
+            sizeof(RuntimeValue *) * (size_t)new_capacity);
+        int *new_lengths = (int *)realloc(
+            mks_gc.root_span_lengths,
+            sizeof(int) * (size_t)new_capacity);
+        if (new_spans == NULL || new_lengths == NULL) {
+            runtime_error("Out of memory growing GC root spans");
+        }
+        mks_gc.root_spans = new_spans;
+        mks_gc.root_span_lengths = new_lengths;
+        mks_gc.root_span_capacity = new_capacity;
     }
     mks_gc.root_spans[mks_gc.root_span_count] = values;
     mks_gc.root_span_lengths[mks_gc.root_span_count] = count;
     mks_gc.root_span_count++;
+}
+
+void gc_update_root_span(RuntimeValue *old_values, RuntimeValue *new_values, int new_count) {
+    if (old_values == NULL || new_values == NULL || new_count <= 0) {
+        return;
+    }
+    for (int i = mks_gc.root_span_count - 1; i >= 0; i--) {
+        if (mks_gc.root_spans[i] == old_values) {
+            mks_gc.root_spans[i] = new_values;
+            mks_gc.root_span_lengths[i] = new_count;
+            return;
+        }
+    }
 }
 
 void gc_pin_root(RuntimeValue *val) {
@@ -644,6 +681,11 @@ void gc_free_all(void) {
     mks_gc.pinned_roots_count = 0;
     mks_gc.pinned_env_roots_count = 0;
     mks_gc.root_span_count = 0;
+    free(mks_gc.root_spans);
+    free(mks_gc.root_span_lengths);
+    mks_gc.root_spans = NULL;
+    mks_gc.root_span_lengths = NULL;
+    mks_gc.root_span_capacity = 0;
 }
 
 void gc_collect(Environment *global_env, Environment *current_env) {

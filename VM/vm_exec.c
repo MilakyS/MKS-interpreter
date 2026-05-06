@@ -194,7 +194,26 @@ static VMCallFrame *vm_current_frame(VM *vm) {
     if (vm->frame_count <= 0) {
         runtime_error("VM frame stack underflow");
     }
-    return &vm->frames[vm->frame_count - 1];
+    return vm->frames[vm->frame_count - 1];
+}
+
+static void vm_free_frame_storage(VM *vm) {
+    if (vm == NULL) {
+        return;
+    }
+    free(vm->frames);
+    vm->frames = NULL;
+    vm->frame_capacity = 0;
+}
+
+static void vm_free_stack_storage(VM *vm) {
+    if (vm == NULL) {
+        return;
+    }
+    free(vm->stack);
+    vm->stack = NULL;
+    vm->sp = NULL;
+    vm->stack_capacity = 0;
 }
 
 static Environment *vm_frame_env(const VMCallFrame *frame) {
@@ -215,8 +234,26 @@ static uint8_t vm_read_u8(VMCallFrame *frame) {
 }
 
 static void vm_stack_push(VM *vm, RuntimeValue value) {
-    if ((size_t)(vm->sp - vm->stack) >= (sizeof(vm->stack) / sizeof(vm->stack[0]))) {
-        runtime_error("VM stack overflow");
+    if (vm->stack == NULL || vm->stack_capacity <= 0) {
+        runtime_error("VM stack is not initialized");
+    }
+    const int used = (int)(vm->sp - vm->stack);
+    if (used >= vm->stack_capacity) {
+        const int new_capacity = vm->stack_capacity * 2;
+        RuntimeValue *old_stack = vm->stack;
+        RuntimeValue *new_stack = (RuntimeValue *)malloc(sizeof(RuntimeValue) * (size_t)new_capacity);
+        if (new_stack == NULL) {
+            runtime_error("Out of memory growing VM value stack");
+        }
+        memcpy(new_stack, vm->stack, sizeof(RuntimeValue) * (size_t)used);
+        vm->stack = new_stack;
+        vm->sp = vm->stack + used;
+        for (int i = used; i < new_capacity; i++) {
+            vm->stack[i] = make_null();
+        }
+        vm->stack_capacity = new_capacity;
+        gc_update_root_span(old_stack, vm->stack, vm->stack_capacity);
+        free(old_stack);
     }
     *vm->sp++ = value;
 }
@@ -242,6 +279,153 @@ static RuntimeValue vm_read_name_constant(VMCallFrame *frame) {
         runtime_error("VM expected string name constant");
     }
     return value;
+}
+
+static void vm_ensure_global_cache(Chunk *chunk, int constant_index) {
+    if (constant_index < chunk->global_cache_capacity) {
+        return;
+    }
+
+    int new_capacity = chunk->global_cache_capacity == 0 ? 16 : chunk->global_cache_capacity * 2;
+    while (new_capacity <= constant_index) {
+        new_capacity *= 2;
+    }
+
+    EnvVar **entries = (EnvVar **)malloc(sizeof(EnvVar *) * (size_t)new_capacity);
+    Environment **owners = (Environment **)malloc(sizeof(Environment *) * (size_t)new_capacity);
+    size_t *epochs = (size_t *)malloc(sizeof(size_t) * (size_t)new_capacity);
+    if (entries == NULL || owners == NULL || epochs == NULL) {
+        free(entries);
+        free(owners);
+        free(epochs);
+        runtime_error("Out of memory growing VM global cache");
+    }
+
+    for (int i = 0; i < chunk->global_cache_capacity; i++) {
+        entries[i] = chunk->global_cache_entries[i];
+        owners[i] = chunk->global_cache_owners[i];
+        epochs[i] = chunk->global_cache_epochs[i];
+    }
+    for (int i = chunk->global_cache_capacity; i < new_capacity; i++) {
+        entries[i] = NULL;
+        owners[i] = NULL;
+        epochs[i] = 0;
+    }
+
+    free(chunk->global_cache_entries);
+    free(chunk->global_cache_owners);
+    free(chunk->global_cache_epochs);
+    chunk->global_cache_entries = entries;
+    chunk->global_cache_owners = owners;
+    chunk->global_cache_epochs = epochs;
+    chunk->global_cache_capacity = new_capacity;
+}
+
+static EnvVar *vm_resolve_global_entry(VMCallFrame *frame,
+                                       Environment *env,
+                                       uint16_t name_index,
+                                       RuntimeValue *name,
+                                       Environment **owner_out) {
+    vm_ensure_global_cache(frame->chunk, name_index);
+
+    MKSContext *ctx = mks_context_current();
+    EnvVar *entry = frame->chunk->global_cache_entries[name_index];
+    if (MKS_LIKELY(entry != NULL && frame->chunk->global_cache_epochs[name_index] == ctx->env_shape_epoch)) {
+        if (owner_out != NULL) {
+            *owner_out = frame->chunk->global_cache_owners[name_index];
+        }
+        return entry;
+    }
+
+    Environment *owner = NULL;
+    entry = env_get_entry_with_owner(env,
+                                     name->data.managed_string->data,
+                                     name->data.managed_string->hash,
+                                     &owner);
+    if (entry == NULL) {
+        runtime_error("Undefined variable '%s'", name->data.managed_string->data);
+    }
+
+    frame->chunk->global_cache_entries[name_index] = entry;
+    frame->chunk->global_cache_owners[name_index] = owner;
+    frame->chunk->global_cache_epochs[name_index] = ctx->env_shape_epoch;
+    if (owner_out != NULL) {
+        *owner_out = owner;
+    }
+    return entry;
+}
+
+static RuntimeValue vm_get_global_cached(VMCallFrame *frame, Environment *env, uint16_t name_index) {
+    RuntimeValue name = frame->chunk->constants[name_index];
+    if (name.type != VAL_STRING || name.data.managed_string == NULL) {
+        runtime_error("VM expected string name constant");
+    }
+
+    return vm_resolve_global_entry(frame, env, name_index, &name, NULL)->value;
+}
+
+static void vm_set_global_cached(VMCallFrame *frame,
+                                 Environment *env,
+                                 uint16_t name_index,
+                                 RuntimeValue value) {
+    RuntimeValue name = frame->chunk->constants[name_index];
+    if (name.type != VAL_STRING || name.data.managed_string == NULL) {
+        runtime_error("VM expected string name constant");
+    }
+    if (value.type == VAL_RETURN) {
+        value.type = value.original_type;
+    }
+
+    Environment *owner = NULL;
+    EnvVar *entry = vm_resolve_global_entry(frame, env, name_index, &name, &owner);
+    gc_write_barrier((GCObject *)owner, &value);
+    entry->value = value;
+    if (MKS_UNLIKELY(mks_context_current()->watch_head != NULL)) {
+        watch_trigger(name.data.managed_string->data,
+                      name.data.managed_string->hash,
+                      env,
+                      &value);
+    }
+}
+
+static RuntimeValue vm_add_global_const_cached(VMCallFrame *frame,
+                                               Environment *env,
+                                               uint16_t name_index,
+                                               uint16_t const_index) {
+    RuntimeValue name = frame->chunk->constants[name_index];
+    if (name.type != VAL_STRING || name.data.managed_string == NULL) {
+        runtime_error("VM expected string name constant");
+    }
+
+    Environment *owner = NULL;
+    EnvVar *entry = vm_resolve_global_entry(frame, env, name_index, &name, &owner);
+    RuntimeValue *left = &entry->value;
+    const RuntimeValue *right = &frame->chunk->constants[const_index];
+
+    if (MKS_LIKELY(left->type == VAL_INT && right->type == VAL_INT)) {
+        left->data.int_value += right->data.int_value;
+    } else if (MKS_LIKELY(left->type == VAL_INT && right->type == VAL_FLOAT)) {
+        const double base = (double)left->data.int_value;
+        left->type = VAL_FLOAT;
+        left->original_type = VAL_FLOAT;
+        left->data.float_value = base + right->data.float_value;
+    } else if (MKS_LIKELY(left->type == VAL_FLOAT && right->type == VAL_INT)) {
+        left->data.float_value += (double)right->data.int_value;
+    } else if (MKS_LIKELY(left->type == VAL_FLOAT && right->type == VAL_FLOAT)) {
+        left->data.float_value += right->data.float_value;
+    } else {
+        RuntimeValue result = runtime_apply_binop(TOKEN_PLUS, *left, *right);
+        gc_write_barrier((GCObject *)owner, &result);
+        entry->value = result;
+    }
+
+    if (MKS_UNLIKELY(mks_context_current()->watch_head != NULL)) {
+        watch_trigger(name.data.managed_string->data,
+                      name.data.managed_string->hash,
+                      env,
+                      &entry->value);
+    }
+    return entry->value;
 }
 
 static void vm_export_global(Environment *env, const char *name) {
@@ -312,23 +496,49 @@ static void vm_unwind_frame(VMCallFrame *frame) {
     gc_pop_root_span();
 }
 
-static void vm_push_frame(VM *vm, Chunk *chunk, Environment *env, int owns_base_env) {
-    if (vm->frame_count >= 64) {
-        runtime_error("VM call frame overflow");
+static void vm_push_frame(VM *vm,
+                          Chunk *chunk,
+                          Environment *env,
+                          int owns_base_env,
+                          int local_root_count,
+                          VMFunction *function) {
+    if (vm->frame_count >= vm->frame_capacity) {
+        int new_capacity = vm->frame_capacity == 0 ? 64 : vm->frame_capacity * 2;
+        VMCallFrame **new_frames = (VMCallFrame **)realloc(vm->frames,
+                                                           sizeof(VMCallFrame *) * (size_t)new_capacity);
+        if (new_frames == NULL) {
+            runtime_error("Out of memory growing VM call frames");
+        }
+        vm->frames = new_frames;
+        vm->frame_capacity = new_capacity;
+    }
+    if (local_root_count < 0) {
+        local_root_count = 0;
+    }
+    if (local_root_count == 0) {
+        local_root_count = 1;
+    }
+    if (local_root_count > (int)(sizeof(((VMCallFrame *)0)->locals) / sizeof(((VMCallFrame *)0)->locals[0]))) {
+        local_root_count = (int)(sizeof(((VMCallFrame *)0)->locals) / sizeof(((VMCallFrame *)0)->locals[0]));
     }
 
-    VMCallFrame *frame = &vm->frames[vm->frame_count++];
+    VMCallFrame *frame = (VMCallFrame *)malloc(sizeof(VMCallFrame));
+    if (frame == NULL) {
+        runtime_error("Out of memory allocating VM call frame");
+    }
+    vm->frames[vm->frame_count++] = frame;
     frame->chunk = chunk;
     frame->ip = chunk->code;
     frame->base_env = env;
     frame->owns_base_env = owns_base_env;
-    for (size_t i = 0; i < sizeof(frame->locals) / sizeof(frame->locals[0]); i++) {
+    frame->function = function;
+    for (int i = 0; i < local_root_count; i++) {
         frame->locals[i] = make_null();
     }
     frame->scope_depth = 0;
     frame->defer_scope_depth = 0;
     frame->defer_count = 0;
-    gc_push_root_span(frame->locals, (int)(sizeof(frame->locals) / sizeof(frame->locals[0])));
+    gc_push_root_span(frame->locals, local_root_count);
 }
 
 static void vm_drop_bootstrap_frame(VM *vm) {
@@ -336,12 +546,13 @@ static void vm_drop_bootstrap_frame(VM *vm) {
         runtime_error("VM bootstrap frame state is invalid");
     }
 
-    VMCallFrame *frame = &vm->frames[0];
+    VMCallFrame *frame = vm->frames[0];
     if (frame->owns_base_env || frame->scope_depth != 0 || frame->defer_scope_depth != 0 || frame->defer_count != 0) {
         runtime_error("VM bootstrap frame is not empty");
     }
 
     gc_pop_root_span();
+    free(frame);
     vm->frame_count = 0;
 }
 
@@ -436,6 +647,24 @@ static void vm_handle_named_call(VM *vm, VMCallFrame *frame) {
     vm_call_callable(vm, callable, text, arg_count);
 }
 
+static void vm_handle_self_call(VM *vm, VMCallFrame *frame) {
+    const int arg_count = (int)(*frame->ip++);
+    if (frame->function == NULL) {
+        runtime_error("VM self call outside function");
+    }
+
+    RuntimeValue callable;
+    callable.type = VAL_FUNC;
+    callable.original_type = VAL_FUNC;
+    callable.data.func.node = (ASTNode *)frame->function->decl_node;
+    callable.data.func.closure_env = (frame->owns_base_env && frame->base_env != NULL)
+        ? frame->base_env->parent
+        : frame->base_env;
+    callable.data.func.root_chunk = vm->root_chunk;
+    callable.data.func.vm_function = frame->function;
+    vm_call_callable(vm, callable, frame->function->debug_name, arg_count);
+}
+
 static void vm_handle_method_call(VM *vm, VMCallFrame *frame) {
     RuntimeValue name = vm_read_name_constant(frame);
     const int arg_count = (int)(*frame->ip++);
@@ -444,7 +673,7 @@ static void vm_handle_method_call(VM *vm, VMCallFrame *frame) {
     PROFILER_ON_VM_HOTSPOT(VM_HOT_METHOD_CALL);
     RuntimeValue result = runtime_call_method(target,
                                               name.data.managed_string->data,
-                                              get_hash(name.data.managed_string->data),
+                                              name.data.managed_string->hash,
                                               args,
                                               arg_count,
                                               vm_frame_env(frame));
@@ -477,22 +706,27 @@ static void vm_push_function_frame(VM *vm,
         runtime_error("Function '%s' expects %d arguments, got %d", name, param_count, arg_count);
     }
 
-    Chunk *root_chunk = NULL;
-    VMFunction *function = NULL;
-    if (!vm_lookup_function(decl, &root_chunk, &function) || function == NULL || root_chunk == NULL) {
+    Chunk *root_chunk = callable.data.func.root_chunk;
+    VMFunction *function = callable.data.func.vm_function;
+    if ((function == NULL || root_chunk == NULL) &&
+        (!vm_lookup_function(decl, &root_chunk, &function) || function == NULL || root_chunk == NULL)) {
         runtime_error("VM function '%s' is not compiled", name);
     }
 
-    Environment *local_env = env_create_child(callable.data.func.closure_env);
-    gc_push_env(local_env);
+    Environment *call_env = callable.data.func.closure_env;
+    const int owns_call_env = function->needs_call_env;
+    if (owns_call_env) {
+        call_env = env_create_child(callable.data.func.closure_env);
+        gc_push_env(call_env);
+    }
     if (self_value != NULL && function->self_local_slot < 0) {
-        env_set(local_env, "self", *self_value);
+        env_set(call_env, "self", *self_value);
     }
 
     if (vm->root_chunk == NULL) {
         vm->root_chunk = root_chunk;
     }
-    vm_push_frame(vm, function->chunk, local_env, 1);
+    vm_push_frame(vm, function->chunk, call_env, owns_call_env, function->local_count, function);
 
     VMCallFrame *frame = vm_current_frame(vm);
     if (function->self_local_slot >= 0) {
@@ -512,7 +746,7 @@ static void vm_push_function_frame(VM *vm,
         if (slot >= 0 && slot < (int)(sizeof(frame->locals) / sizeof(frame->locals[0]))) {
             frame->locals[slot] = args[i];
         } else {
-            env_set(local_env, decl->data.func_decl.params[i], args[i]);
+            env_set(call_env, decl->data.func_decl.params[i], args[i]);
         }
     }
 }
@@ -625,11 +859,19 @@ void vm_init(VM *vm, Chunk *root_chunk, Environment *env) {
     }
 
     memset(vm, 0, sizeof(*vm));
+    vm->stack_capacity = 1024;
+    vm->stack = (RuntimeValue *)malloc(sizeof(RuntimeValue) * (size_t)vm->stack_capacity);
+    if (vm->stack == NULL) {
+        runtime_error("Out of memory allocating VM value stack");
+    }
+    for (int i = 0; i < vm->stack_capacity; i++) {
+        vm->stack[i] = make_null();
+    }
     vm->sp = vm->stack;
     vm->root_chunk = root_chunk;
     vm->global_env = env;
     vm->gc_tick = 4096;
-    vm_push_frame(vm, root_chunk, env, 0);
+    vm_push_frame(vm, root_chunk, env, 0, 64, NULL);
 }
 
 RuntimeValue vm_run(VM *vm) {
@@ -641,11 +883,7 @@ RuntimeValue vm_run(VM *vm) {
     if (!root_already_registered) {
         vm_register_chunk_internal(vm->root_chunk, 0);
     }
-    for (size_t i = 0; i < sizeof(vm->stack) / sizeof(vm->stack[0]); i++) {
-        vm->stack[i] = make_null();
-    }
-
-    gc_push_root_span(vm->stack, (int)(sizeof(vm->stack) / sizeof(vm->stack[0])));
+    gc_push_root_span(vm->stack, vm->stack_capacity);
     const int need_chunk_spans = !vm_chunk_is_owned(vm->root_chunk);
     if (need_chunk_spans) {
         chunk_push_constant_roots(vm->root_chunk);
@@ -678,6 +916,8 @@ RuntimeValue vm_run(VM *vm) {
                 value.original_type = VAL_FUNC;
                 value.data.func.node = (ASTNode *)function->decl_node;
                 value.data.func.closure_env = vm_frame_env(frame);
+                value.data.func.root_chunk = vm->root_chunk;
+                value.data.func.vm_function = function;
                 env_set_fast(vm_frame_env(frame),
                              name.data.managed_string->data,
                              get_hash(name.data.managed_string->data),
@@ -725,10 +965,9 @@ RuntimeValue vm_run(VM *vm) {
             }
 
             case OP_GET_GLOBAL: {
-                RuntimeValue name = vm_read_name_constant(frame);
-                const char *text = name.data.managed_string->data;
+                const uint16_t name_index = vm_read_u16(frame);
                 PROFILER_ON_VM_HOTSPOT(VM_HOT_GLOBAL_READ);
-                vm_stack_push(vm, env_get_fast(vm_frame_env(frame), text, name.data.managed_string->hash));
+                vm_stack_push(vm, vm_get_global_cached(frame, vm_frame_env(frame), name_index));
                 break;
             }
 
@@ -739,16 +978,155 @@ RuntimeValue vm_run(VM *vm) {
             }
 
             case OP_SET_GLOBAL: {
-                RuntimeValue name = vm_read_name_constant(frame);
-                const char *text = name.data.managed_string->data;
+                const uint16_t name_index = vm_read_u16(frame);
                 PROFILER_ON_VM_HOTSPOT(VM_HOT_GLOBAL_WRITE);
-                env_update_fast(vm_frame_env(frame), text, name.data.managed_string->hash, vm_stack_peek(vm, 0));
+                vm_set_global_cached(frame, vm_frame_env(frame), name_index, vm_stack_peek(vm, 0));
                 break;
             }
 
             case OP_SET_LOCAL: {
                 const uint8_t slot = vm_read_u8(frame);
                 frame->locals[slot] = vm_stack_peek(vm, 0);
+                break;
+            }
+
+            case OP_ADD_GLOBAL_CONST: {
+                const uint16_t name_index = vm_read_u16(frame);
+                const uint16_t const_index = vm_read_u16(frame);
+                PROFILER_ON_VM_HOTSPOT(VM_HOT_GLOBAL_WRITE);
+                (void)vm_add_global_const_cached(frame,
+                                                 vm_frame_env(frame),
+                                                 name_index,
+                                                 const_index);
+                break;
+            }
+
+            case OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT: {
+                const uint16_t name_index = vm_read_u16(frame);
+                const uint8_t counter_slot = vm_read_u8(frame);
+                const uint16_t limit_index = vm_read_u16(frame);
+                const uint16_t add_index = vm_read_u16(frame);
+                RuntimeValue *counter = &frame->locals[counter_slot];
+                const RuntimeValue *limit = &frame->chunk->constants[limit_index];
+
+                if (MKS_LIKELY(counter->type == VAL_INT && limit->type == VAL_INT)) {
+                    int64_t count = limit->data.int_value - counter->data.int_value;
+                    if (count <= 0) {
+                        break;
+                    }
+
+                    MKSContext *ctx = mks_context_current();
+                    RuntimeValue name = frame->chunk->constants[name_index];
+                    Environment *owner = NULL;
+                    EnvVar *entry = vm_resolve_global_entry(frame,
+                                                            vm_frame_env(frame),
+                                                            name_index,
+                                                            &name,
+                                                            &owner);
+                    RuntimeValue *global = &entry->value;
+                    const RuntimeValue *add = &frame->chunk->constants[add_index];
+                    if (MKS_LIKELY(ctx->watch_head == NULL && global->type == VAL_INT && add->type == VAL_INT)) {
+                        global->data.int_value += add->data.int_value * count;
+                    } else if (MKS_LIKELY(ctx->watch_head == NULL && global->type == VAL_FLOAT && add->type == VAL_INT)) {
+                        global->data.float_value += (double)add->data.int_value * (double)count;
+                    } else if (MKS_LIKELY(ctx->watch_head == NULL && global->type == VAL_INT && add->type == VAL_FLOAT)) {
+                        global->type = VAL_FLOAT;
+                        global->original_type = VAL_FLOAT;
+                        global->data.float_value = (double)global->data.int_value + add->data.float_value * (double)count;
+                    } else if (MKS_LIKELY(ctx->watch_head == NULL && global->type == VAL_FLOAT && add->type == VAL_FLOAT)) {
+                        global->data.float_value += add->data.float_value * (double)count;
+                    } else if (global->type == VAL_INT && add->type == VAL_INT &&
+                               watch_trigger_int_add_range(name.data.managed_string->data,
+                                                           name.data.managed_string->hash,
+                                                           vm_frame_env(frame),
+                                                           global,
+                                                           global->data.int_value,
+                                                           add->data.int_value,
+                                                           count)) {
+                        global->data.int_value += add->data.int_value * count;
+                    } else {
+                        while (count-- > 0) {
+                            (void)vm_add_global_const_cached(frame, vm_frame_env(frame), name_index, add_index);
+                        }
+                    }
+                    counter->data.int_value = limit->data.int_value;
+                } else {
+                    const int counter_started_int = counter->type == VAL_INT;
+                    double counter_num = counter->type == VAL_INT
+                        ? (double)counter->data.int_value
+                        : (counter->type == VAL_FLOAT ? counter->data.float_value : 0.0);
+                    const double limit_num = limit->type == VAL_INT
+                        ? (double)limit->data.int_value
+                        : (limit->type == VAL_FLOAT ? limit->data.float_value : 0.0);
+                    if ((counter->type != VAL_INT && counter->type != VAL_FLOAT) ||
+                        (limit->type != VAL_INT && limit->type != VAL_FLOAT)) {
+                        runtime_error("OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT expects numeric counter and limit");
+                    }
+                    while (counter_num < limit_num) {
+                        (void)vm_add_global_const_cached(frame, vm_frame_env(frame), name_index, add_index);
+                        counter_num += 1.0;
+                    }
+                    if (counter_started_int) {
+                        counter->data.int_value = (int64_t)counter_num;
+                    } else {
+                        counter->data.float_value = counter_num;
+                    }
+                }
+                break;
+            }
+
+            case OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT: {
+                const uint8_t target_slot = vm_read_u8(frame);
+                const uint8_t counter_slot = vm_read_u8(frame);
+                const uint16_t limit_index = vm_read_u16(frame);
+                const uint16_t add_index = vm_read_u16(frame);
+                RuntimeValue *target = &frame->locals[target_slot];
+                RuntimeValue *counter = &frame->locals[counter_slot];
+                const RuntimeValue *limit = &frame->chunk->constants[limit_index];
+                const RuntimeValue *add = &frame->chunk->constants[add_index];
+
+                if (MKS_LIKELY(counter->type == VAL_INT && limit->type == VAL_INT)) {
+                    const int64_t count = limit->data.int_value - counter->data.int_value;
+                    if (count <= 0) {
+                        break;
+                    }
+                    if (MKS_LIKELY(target->type == VAL_INT && add->type == VAL_INT)) {
+                        target->data.int_value += add->data.int_value * count;
+                    } else if (MKS_LIKELY(target->type == VAL_FLOAT && add->type == VAL_INT)) {
+                        target->data.float_value += (double)add->data.int_value * (double)count;
+                    } else if (MKS_LIKELY(target->type == VAL_INT && add->type == VAL_FLOAT)) {
+                        const double base = (double)target->data.int_value;
+                        target->type = VAL_FLOAT;
+                        target->original_type = VAL_FLOAT;
+                        target->data.float_value = base + add->data.float_value * (double)count;
+                    } else if (MKS_LIKELY(target->type == VAL_FLOAT && add->type == VAL_FLOAT)) {
+                        target->data.float_value += add->data.float_value * (double)count;
+                    } else {
+                        runtime_error("OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT expects numeric target and addend");
+                    }
+                    counter->data.int_value = limit->data.int_value;
+                } else {
+                    if ((counter->type != VAL_INT && counter->type != VAL_FLOAT) ||
+                        (limit->type != VAL_INT && limit->type != VAL_FLOAT)) {
+                        runtime_error("OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT expects numeric counter and limit");
+                    }
+                    const int counter_started_int = counter->type == VAL_INT;
+                    double counter_num = counter->type == VAL_INT
+                        ? (double)counter->data.int_value
+                        : counter->data.float_value;
+                    const double limit_num = limit->type == VAL_INT
+                        ? (double)limit->data.int_value
+                        : limit->data.float_value;
+                    while (counter_num < limit_num) {
+                        *target = vm_apply_binary(OP_ADD, *target, *add);
+                        counter_num += 1.0;
+                    }
+                    if (counter_started_int) {
+                        counter->data.int_value = (int64_t)counter_num;
+                    } else {
+                        counter->data.float_value = counter_num;
+                    }
+                }
                 break;
             }
 
@@ -1244,6 +1622,11 @@ RuntimeValue vm_run(VM *vm) {
                 break;
             }
 
+            case OP_CALL_SELF: {
+                vm_handle_self_call(vm, frame);
+                break;
+            }
+
             case OP_CALL_METHOD: {
                 vm_handle_method_call(vm, frame);
                 break;
@@ -1268,6 +1651,7 @@ RuntimeValue vm_run(VM *vm) {
                 RuntimeValue result = vm->sp > vm->stack ? vm_stack_pop(vm) : make_null();
                 vm_unwind_frame(frame);
                 vm->frame_count--;
+                free(frame);
                 if (vm->frame_count == 0) {
                     if (need_chunk_spans) {
                         chunk_pop_constant_roots(vm->root_chunk);
@@ -1276,6 +1660,8 @@ RuntimeValue vm_run(VM *vm) {
                     if (!root_already_registered) {
                         vm_unregister_chunk_internal(vm->root_chunk);
                     }
+                    vm_free_frame_storage(vm);
+                    vm_free_stack_storage(vm);
                     return result;
                 }
                 vm_stack_push(vm, result);
@@ -1291,6 +1677,8 @@ RuntimeValue vm_run(VM *vm) {
     if (!root_already_registered) {
         vm_unregister_chunk_internal(vm->root_chunk);
     }
+    vm_free_frame_storage(vm);
+    vm_free_stack_storage(vm);
     return make_null();
 }
 
@@ -1336,15 +1724,23 @@ RuntimeValue vm_call_function_value(RuntimeValue callable,
     }
 
     Chunk *root_chunk = NULL;
-    if (!vm_lookup_function(callable.data.func.node, &root_chunk, NULL) || root_chunk == NULL) {
+    VMFunction *function = callable.data.func.vm_function;
+    if (callable.data.func.root_chunk != NULL) {
+        root_chunk = callable.data.func.root_chunk;
+    }
+    if ((root_chunk == NULL || function == NULL) &&
+        (!vm_lookup_function(callable.data.func.node, &root_chunk, &function) || root_chunk == NULL || function == NULL)) {
         runtime_error("VM function is not compiled");
     }
 
     VM vm;
     vm_init(&vm, root_chunk, callable.data.func.closure_env);
     vm_drop_bootstrap_frame(&vm);
+    RuntimeValue cached_callable = callable;
+    cached_callable.data.func.root_chunk = root_chunk;
+    cached_callable.data.func.vm_function = function;
     vm_push_function_frame(&vm,
-                           callable,
+                           cached_callable,
                            callable.data.func.node->data.func_decl.name,
                            args,
                            arg_count,
@@ -1375,7 +1771,7 @@ RuntimeValue vm_run_compiled_ast_body(Environment *env, ASTNode *node) {
     VM vm;
     vm_init(&vm, root_chunk, env);
     vm_drop_bootstrap_frame(&vm);
-    vm_push_frame(&vm, function->chunk, env, 0);
+    vm_push_frame(&vm, function->chunk, env, 0, function->local_count, function);
     if (function->self_local_slot >= 0) {
         VMCallFrame *frame = vm_current_frame(&vm);
         RuntimeValue resolved_self;

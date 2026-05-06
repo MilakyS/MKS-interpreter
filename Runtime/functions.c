@@ -22,6 +22,8 @@ RuntimeValue eval_func_decl(const ASTNode *node, Environment *env) {
     func.original_type = VAL_FUNC;
     func.data.func.node = (ASTNode *)node;
     func.data.func.closure_env = env;
+    func.data.func.root_chunk = NULL;
+    func.data.func.vm_function = NULL;
 
     env_set_fast(env, node->data.func_decl.name, node->data.func_decl.name_hash, func);
     return func;
@@ -140,6 +142,8 @@ RuntimeValue eval_blueprint_construct(RuntimeValue blueprint, RuntimeValue *args
         fn.original_type = VAL_FUNC;
         fn.data.func.node = m;
         fn.data.func.closure_env = obj_env;
+        fn.data.func.root_chunk = NULL;
+        fn.data.func.vm_function = NULL;
         env_set_fast(obj_env, m->data.func_decl.name, m->data.func_decl.name_hash, fn);
     }
 

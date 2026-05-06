@@ -100,6 +100,11 @@ void chunk_init(Chunk *chunk) {
 
     chunk->slot_predictions = NULL;
     chunk->slot_predict_count = 0;
+
+    chunk->global_cache_entries = NULL;
+    chunk->global_cache_owners = NULL;
+    chunk->global_cache_epochs = NULL;
+    chunk->global_cache_capacity = 0;
 }
 
 void chunk_free(Chunk *chunk) {
@@ -117,6 +122,9 @@ void chunk_free(Chunk *chunk) {
     free(chunk->constants);
     free(chunk->code);
     free(chunk->slot_predictions);
+    free(chunk->global_cache_entries);
+    free(chunk->global_cache_owners);
+    free(chunk->global_cache_epochs);
 
     chunk_init(chunk);
 }

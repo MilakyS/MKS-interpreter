@@ -1,0 +1,17 @@
+fnc F(n) ->
+    if (n > 29999) ->
+        return n + F(n - 5);
+    <- else ->
+        return n + G(n - 2);
+    <-
+<-
+
+fnc G(n) ->
+    if (n < 30000) ->
+        return 10 + n + G(n + 3);
+    <- else ->
+        return n * n;
+    <-
+<-
+
+Writeln(F(75000));

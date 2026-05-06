@@ -16,6 +16,9 @@ const char *vm_opcode_name(OpCode op) {
         case OP_GET_LOCAL: return "OP_GET_LOCAL";
         case OP_SET_GLOBAL: return "OP_SET_NAME";
         case OP_SET_LOCAL: return "OP_SET_LOCAL";
+        case OP_ADD_GLOBAL_CONST: return "OP_ADD_GLOBAL_CONST";
+        case OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT: return "OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT";
+        case OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT: return "OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT";
         case OP_INC_LOCAL: return "OP_INC_LOCAL";
         case OP_DEC_LOCAL: return "OP_DEC_LOCAL";
         case OP_ADD_LOCAL_CONST: return "OP_ADD_LOCAL_CONST";
@@ -68,6 +71,7 @@ const char *vm_opcode_name(OpCode op) {
         case OP_SWAP_PTRS: return "OP_SWAP_PTRS";
         case OP_IMPORT: return "OP_IMPORT";
         case OP_CALL: return "OP_CALL";
+        case OP_CALL_SELF: return "OP_CALL_SELF";
         case OP_CALL_METHOD: return "OP_CALL_METHOD";
         case OP_CALL_NATIVE: return "OP_CALL_NATIVE";
         case OP_TEST_PASS: return "OP_TEST_PASS";
@@ -93,6 +97,28 @@ static int dump_chunk_impl(const Chunk *chunk, FILE *out, int indent) {
             case OP_TEST_PASS:
                 fprintf(out, " %u", (unsigned)((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]));
                 offset += 3;
+                break;
+            case OP_ADD_GLOBAL_CONST:
+                fprintf(out, " name=%u const=%u",
+                        (unsigned)((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]),
+                        (unsigned)((chunk->code[offset + 3] << 8) | chunk->code[offset + 4]));
+                offset += 5;
+                break;
+            case OP_ADD_GLOBAL_CONST_BY_COUNT_TO_LIMIT:
+                fprintf(out, " name=%u counter=%u limit=%u const=%u",
+                        (unsigned)((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]),
+                        (unsigned)chunk->code[offset + 3],
+                        (unsigned)((chunk->code[offset + 4] << 8) | chunk->code[offset + 5]),
+                        (unsigned)((chunk->code[offset + 6] << 8) | chunk->code[offset + 7]));
+                offset += 8;
+                break;
+            case OP_ADD_LOCAL_CONST_BY_COUNT_TO_LIMIT:
+                fprintf(out, " target=%u counter=%u limit=%u const=%u",
+                        (unsigned)chunk->code[offset + 1],
+                        (unsigned)chunk->code[offset + 2],
+                        (unsigned)((chunk->code[offset + 3] << 8) | chunk->code[offset + 4]),
+                        (unsigned)((chunk->code[offset + 5] << 8) | chunk->code[offset + 6]));
+                offset += 7;
                 break;
             case OP_DEFINE_LOCAL:
             case OP_GET_LOCAL:
@@ -145,6 +171,10 @@ static int dump_chunk_impl(const Chunk *chunk, FILE *out, int indent) {
                         (unsigned)((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]),
                         (unsigned)chunk->code[offset + 3]);
                 offset += 4;
+                break;
+            case OP_CALL_SELF:
+                fprintf(out, " argc=%u", (unsigned)chunk->code[offset + 1]);
+                offset += 2;
                 break;
             case OP_IMPORT:
                 fprintf(out, " spec=%u alias=%u legacy=%u star=%u",

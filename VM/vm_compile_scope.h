@@ -24,6 +24,10 @@ int compiler_can_cache_import_alias(const Compiler *compiler,
 
 int ast_name_must_remain_env_backed(Compiler *compiler, const ASTNode *decl_node);
 
+int ast_name_must_remain_env_backed_in_node(Compiler *compiler,
+                                            const ASTNode *decl_node,
+                                            const ASTNode *scope_node);
+
 void compiler_seed_function_param_locals(Compiler *compiler, VMFunction *function);
 
 void compiler_seed_method_self_local(Compiler *compiler, VMFunction *function);
